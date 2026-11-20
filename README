@@ -1,0 +1,539 @@
+# OpenSPARC T1: Modern Open-Source Port
+
+This repository contains the OpenSPARC T1 (UltraSPARC T1 / Niagara) design
+database originally released by Sun Microsystems under the GNU General Public
+License, version 2.
+
+The original release targets a proprietary, Solaris-era flow: VCS,
+NC-Verilog, Vera, the SAS and Midas tools, and Synopsys/Synplicity synthesis.
+None of those dependencies are available in a current Linux environment. This
+port makes the original RTL usable with modern open-source Verilog tools.
+Stage 1 makes the RTL compile with Icarus Verilog, lint with Verilator, and
+pass a Yosys hierarchy check. Stage 2 adds a self-contained, pure-Verilog core
+simulation smoke test that runs on both Icarus and Verilator and does not use
+Vera, PLI, SAS, or any Solaris binary. Stage 3 adds an FPGA wrapper and a
+nextpnr/Gowin implementation flow, plus an ASIC flow based on LibreLane and
+the sky130 PDK.
+
+The T1 RTL is Verilog-2001. It is not VHDL, so GHDL is not used for the design
+itself. A mixed-language environment can be built on top of the Verilog RTL,
+but that is outside the current scope.
+
+## Verified toolchain
+
+The checks below were run on Linux x86-64 with:
+
+| Tool | Version | Result |
+| --- | --- | --- |
+| Python | 3.14 | File-list and flow generation |
+| Icarus Verilog | 12.0 | `core1` RTL compiles, top `sparc`; smoke test passes |
+| Verilator | 5.032 | 1364-2001 lint, 0 errors; smoke test passes |
+| Yosys | 0.52 | RTL read and `hierarchy -check -top sparc` |
+| Yosys | 0.70+221 | Gowin synthesis of the full core |
+| nextpnr-himbaechel | 0.11.1-80 | GW5AST-138C place and route |
+| gowin_pack (apycula) | oss-cad-suite | Gowin bitstream packing |
+| LibreLane | 3.0.17 | sky130 RTL-to-GDS leaf-block flow |
+| sky130 PDK | CIEL 792ef67 | sky130A standard-cell libraries |
+
+These are minimum-tested versions, not hard requirements. Recent releases of
+the same tools should work.
+
+## Quick start
+
+Install `make`, Python 3, Icarus Verilog, Verilator, and Yosys. From the
+repository root run:
+
+```sh
+make -C port all
+```
+
+This generates the file lists and runs all three checks. Individual checks are
+also available:
+
+```sh
+make -C port icarus
+make -C port verilator
+make -C port yosys
+
+make -C port smoke           # Stage 2 core boot test (Icarus)
+make -C port fpga-sim        # Stage 3 FPGA wrapper boot test
+make -C port fpga-smoke      # fast nextpnr/Gowin toolchain bitstream
+make -C port fpga            # full-core FPGA bitstream (long)
+make -C port asic-smoke      # LibreLane sky130 leaf-block RTL-to-GDS
+```
+
+The FPGA targets look for `yosys`, `nextpnr-himbaechel`, and `gowin_pack`
+under `/shared/oss-cad-suite/bin`; override `OSS_CAD_SUITE` to use another
+installation. Version 0.70 or newer of Yosys is required for the Gowin
+library models. The ASIC targets require `nix` and the LibreLane checkout at
+`/opt/librelane`, plus a CIEL sky130 PDK under `~/.ciel` (override with
+`PDK_ROOT`).
+
+Generated files are written to `port/build/`. Remove them with:
+
+```sh
+make -C port clean
+```
+
+The top module used by the checks is `sparc`, the CPU core. Override it with
+`make -C port TOP=sparc` or generate a list for another top.
+
+### Direct commands
+
+The Makefile is a thin wrapper around the following commands:
+
+```sh
+python3 port/scripts/gen_filelist.py \
+    --mode rtl \
+    --top sparc \
+    -o port/build/core1_rtl.f \
+    --config-v port/build/config.v \
+    --yosys port/build/core1_rtl.ys
+
+iverilog -g2005 -s sparc \
+    -f port/build/core1_rtl.f \
+    -o port/build/core1_rtl.vvp
+
+verilator --lint-only --language 1364-2001 --no-timing \
+    --top-module sparc -Wno-fatal \
+    -f port/build/core1_rtl.f
+
+yosys -q -s port/build/core1_rtl.ys
+```
+
+Verilator currently reports legacy width and implicit-net warnings. They do
+not stop the check because `-Wno-fatal` is used. The target of Stage 1 is
+parse and hierarchy compatibility, not a warning-free lint baseline.
+
+`--no-timing` is required because the clock wrappers use `#10` delay controls.
+Verilator lint is a structural check; it does not model those delays.
+
+## Stage 2: core simulation smoke test
+
+Stage 2 adds a self-contained, pure-Verilog testbench that boots one T1 core,
+fills an I-cache line, executes a branch, and detects the resulting second
+instruction fetch. It does not use Vera, PLI, SAS, or any prebuilt Solaris
+binary.
+
+### Boot mechanism
+
+A T1 core does not start fetching by itself after reset. In the full chip the
+I/O bridge sends a CPX `INT_RET` packet carrying a reset interrupt. The TLU
+decodes the packet, loads the reset trap vector, and starts thread 0. The
+testbench injects that packet once, 300 clock cycles after reset release.
+
+Instruction fetches appear on the core PCX interface as `IMISS_RQ` packets.
+The testbench acts as a minimal L2: for each miss it returns two 16-byte CPX
+`IFILL_RET` packets, low half first and then high half, which together form
+one 32-byte I-cache line. No memory model or page tables are needed: the reset
+trap path maps its virtual addresses to fixed physical addresses, and the
+responder keys on the physical address carried by the IMISS packet.
+
+The served image is:
+
+| Virtual address | Instruction | Meaning |
+| --- | --- | --- |
+| `0xffff_f000_0040` | `0x10800010` | `ba 0xffff_f000_0080` |
+| `0xffff_f000_0044` | `0x01000000` | `nop` (delay slot) |
+| `0xffff_f000_0080` | `0x01000000` | `nop` |
+
+The PASS condition is a subsequent `IMISS_RQ` at physical address
+`0xfff0_0000_80`. A sequential fetch would continue at `0x48`, so a fetch at
+`0x80` is only possible if the reset trap, the I-cache fill, and the branch
+all executed correctly.
+
+### Running the smoke test
+
+```sh
+make -C port smoke            # Icarus, a few seconds
+make -C port smoke-verilator  # Verilator, several minutes on first build
+make -C port regress          # both, Icarus first
+```
+
+The Icarus and Verilator targets both fail the `make` invocation unless the
+log contains `SMOKE PASS`. Logs are written to `port/build/smoke_icarus.log`
+and `port/build/smoke_verilator.log`. Typical output:
+
+```text
+PCX IMISS #0 t=1712500 tid=0 line=fff0000040
+PCX IMISS #1 t=1807500 tid=0 line=fff0000040
+PCX IMISS #2 t=1902500 tid=0 line=fff0000080
+SMOKE PASS: branch to fff0000080 executed, second fetch issued
+```
+
+The reset line may be requested more than once while the thread is being
+restarted; the responder answers every request. `JOBS=N` overrides the
+Verilator build parallelism. Verilator is a 2-state simulator, so the SRAM
+models' simulation-only `== 1'bx` checks misfire; the Verilator target defines
+`INNO_MUXEX` to disable those diagnostics. It does not change functional RTL
+behavior.
+
+The testbench, responder, and PASS program are in
+`port/tb/tb_core_smoke.v`. The single-core wrapper is
+`design/sys/iop/rtl/iop_fpga.v`; it exposes only clock, reset, PCX, and CPX.
+
+## Stage 3: FPGA and ASIC implementation
+
+Stage 3 builds two implementation wrappers around the same core:
+
+- `port/fpga/` targets the Sipeed Tang Mega 138K Pro Dock with the open
+  Gowin flow (`yosys` + `nextpnr-himbaechel` + `gowin_pack`).
+- `port/asic/` targets sky130 through LibreLane, invoked from the pinned nix
+  shell in `/opt/librelane`.
+
+Neither flow uses the original Synopsys/Synplicity scripts.
+
+### FPGA: Tang Mega 138K Pro Dock
+
+`port/fpga/t1_fpga_top.v` instantiates `iop_fpga`, injects the CPX reset
+interrupt, answers IMISS requests with a hard-coded IFILL image, and reports
+progress on the board LEDs. The boot image is the same one used by Stage 2:
+
+| LED | Active-low indication |
+| --- | --- |
+| `led[0]` | ~0.7 s heartbeat |
+| `led[1]` | boot interrupt sent |
+| `led[2]` | first I-miss seen |
+| `led[3]` | branch PASS reached |
+| `led[4]` | timeout |
+| `led[5]` | ~12 Hz activity |
+
+Pins are in `port/fpga/tang_mega_138k.cst`: 50 MHz clock `P16`, button
+`K16` as active-low reset, and LEDs `R26 J14 L20 M25 N21 N23`. The clock
+and reset are the only inputs; there is no external memory.
+
+The synthesis source list is Sun's `design/sys/iop/sparc/xst/sparc.flist`
+plus `iop_fpga.v` and the board wrapper. `port/scripts/gen_fpga_ys.py`
+generates the Yosys script with the FPGA defines from Sun's flow. The
+nextpnr device is `GW5AST-LV138FPG676AC1/I0` with
+`--vopt family=GW5AST-138C`; the packaged chipdb is named `138C` even though
+the Amaranth board file says `138B`.
+
+```sh
+make -C port fpga-sim    # boots the wrapper in Icarus
+make -C port fpga-smoke  # one-adder toolchain bitstream, seconds to build
+make -C port fpga        # full core: synth, PnR, bitstream
+```
+
+`fpga-smoke` is a quick board/toolchain check built from
+`port/fpga/t1_fpga_smoke.v`; it routes in seconds and passes 50 MHz with
+246.43 MHz reported Fmax (69 LUT4, 63 DFF, 64 ALU). The full-core
+synthesis after Gowin packing uses:
+
+| Resource | Used | Available | Utilisation |
+| --- | ---: | ---: | ---: |
+| LUT4 | 105,487 | 138,240 | 76% |
+| DFF | 44,925 | 138,240 | 32% |
+| MUX2_LUT5 | 16,637 | 69,120 | 24% |
+| BSRAM | 44 | 340 | 12% |
+| RAM16SDP4 | 1,568 | 17,280 | 9% |
+| ALU | 1,070 | 103,680 | 1% |
+
+Synthesis fits the device, but the packed design is too dense for
+nextpnr's placement legaliser: both the analytic placer and the heap placer
+(`--placer heap --no-tmdriv --placer-heap-beta 1.0 --placer-heap-no-ctrl-set`)
+stop with `Unable to find legal placement for all cells, design is probably at
+utilisation limit.` at 76% LUT4 use. No full-core bitstream is produced in
+this environment. `make -C port fpga` therefore remains a synthesis and PnR
+attempt, not a guaranteed bitstream; `fpga-smoke` is the supported bitstream
+path. Should a full-core attempt succeed, the bitstream is written to
+`port/build/fpga/t1_fpga.fs`; program it with:
+
+```sh
+openFPGALoader -b tangmega138k port/build/fpga/t1_fpga.fs
+```
+
+The simulation path (`fpga-sim`) prints `FPGA WRAPPER PASS` when the branch
+at `0xffff_f000_0080` executes and issues the second instruction fetch. The
+bitstreams have not been tested on physical hardware in this environment.
+
+### ASIC: LibreLane and sky130
+
+`port/asic/run.sh` is a thin wrapper around:
+
+```sh
+nix develop /opt/librelane -c librelane --manual-pdk --pdk-root ~/.ciel -p sky130A ...
+```
+
+LibreLane 3.0.17 expects `LIB`/`DEFAULT_CORNER` PDK metadata, while the CIEL
+sky130 metadata installed here provides `CELL_LIBS`. The wrapper generates a
+temporary override mapping the `tt`, `ss` and `ff` liberty files and sets
+`DEFAULT_CORNER` to `nom_tt_025C_1v80`. It also uses `--manual-pdk` to avoid
+LibreLane's automatic PDK fetch, which fails when only a SOCKS proxy is
+available.
+
+The ASIC smoke design is a registered 64-bit T1 adder
+(`t1_asic_smoke.v`, using `sparc_exu_aluadder64.v`). It is a leaf block, not
+the CPU: it exercises the complete LibreLane RTL-to-GDS path without
+requiring SRAM macros or a full-chip pinout.
+
+```sh
+make -C port asic-smoke
+```
+
+The generated GDS is
+`port/asic/runs/smoke/final/gds/t1_asic_smoke.gds` (ignored by git). The
+15 ns configuration closes setup and hold timing in all documented corners:
+the saturated `nom_ss_100C_1v60` corner has 1.47 ns setup slack and the
+`nom_tt_025C_1v80` corner has 7.95 ns. The die is 22,336.5 µm² with 2,274
+instances. A few pins slightly exceed the 0.75 ns max-slew limit, which is
+reported as a warning. The flow also writes a metrics file at
+`port/asic/runs/smoke/final/metrics.json`.
+
+`make -C port asic-config asic-synth` generates a full-core LibreLane
+configuration (147 sources, top `iop_fpga`, clock `gclk`) and runs through
+`Yosys.Synthesis`. The full T1 core is far larger than the leaf block: with
+no ASIC SRAM macros, generic synthesis expands the register files and cache
+arrays into about 350,820 flip-flops and 1,151,492 cells. DFF mapping
+completes, but ABC technology mapping does not finish in a reasonable time
+in this environment, and the resulting netlist is not P&R-ready. The
+full-core target is therefore a synthesis/feasibility check; physical
+implementation needs SRAM macro replacement and a partitioned floorplan.
+
+## File-list generation
+
+The checked-in configuration files are the single source of truth:
+
+- `port/config/core1.config`
+- the `.flist` files it references under `design/` and `verif/`
+
+`port/scripts/gen_filelist.py` parses the Sun `sims` format, resolves
+`$DV_ROOT` and paths relative to each `.flist`, and emits:
+
+- `port/build/core1_rtl.f`: an Icarus/Verilator file list with
+  `+define+`, `+incdir+`, `-v`, and source entries;
+- `port/build/config.v`: the same configuration macros as Verilog
+  `` `define `` directives;
+- `port/build/core1_rtl.ys`: a Yosys script that reads the RTL, treats the
+  memory models as libraries, and runs `hierarchy -check`.
+
+`--mode rtl` selects design and library sources only. It produces 631 source
+files, 89 library files, and 7 include directories for the `core1` RTL.
+`--mode full` additionally includes the verification environment. That list is
+available for inspection, but it is not yet buildable: the legacy testbench
+still depends on Vera and PLI, and the Solaris `sims` binaries are no longer
+in the tree.
+
+Do not edit the generated lists by hand. Change the original `.flist` or
+`core1.config` and regenerate.
+
+The Yosys script omits the pad models under `design/sys/iop/pads/`. Those
+models use drive-strength syntax that Yosys does not parse, and the pads are
+not part of the `sparc` core netlist. The Icarus and Verilator lists include
+the pads.
+
+## Stage 1 RTL changes
+
+Stage 1 changes are portability fixes. They do not intentionally alter the
+behavior of the design.
+
+### Verilog-2001 keyword collisions
+
+SystemVerilog reserves `logic`, which is also a legal Verilog-2001 identifier.
+Two uses were renamed rather than enabling SystemVerilog mode, so the project
+continues to validate the RTL as strict Verilog-2001:
+
+- `design/sys/iop/sparc/ffu/rtl/sparc_ffu_ctl_visctl.v`: the `logic` wire
+  and its five uses are now `vis_logic`.
+- `design/sys/iop/sparc/exu/rtl/sparc_exu_alu.v`: instance `logic` is now
+  `alu_logic`.
+
+### Portable diagnostics
+
+Verilator in 1364-2001 mode does not support the `$error` system task. All 90
+active `$error` calls in 28 files were replaced with `$display` calls. The
+first two string arguments were merged so the messages retain their tag and
+text, for example:
+
+```verilog
+// before
+$error("L2_TAG_ERR", " way select error %h ", way[11:0]);
+
+// after
+$display("ERROR: L2_TAG_ERR:  way select error %h ", way[11:0]);
+```
+
+Every converted message is prefixed with `ERROR:`, so diagnostics remain easy
+to search. Note that `$display` does not abort a simulation; a future stage
+should move these checks into assertions.
+
+### Yosys-compatible parameter overrides
+
+Yosys rejects the positional instance parameter syntax `#N` and requires the
+parenthesized form. All 93 affected instances in 9 files were converted from
+`#N` to `#(N)`, for example:
+
+```verilog
+dff_s #4 park_reg(...);    // becomes
+dff_s #(4) park_reg(...);
+```
+
+The two forms are equivalent in Verilog-2001.
+
+### Control characters
+
+Form-feed characters were removed from 11 JBI source files. The files remain
+functionally identical; the bytes caused Yosys to report an invalid token.
+
+## Stage 3 RTL changes
+
+These changes preserve behavior but make the legacy RTL acceptable to the
+implementation tools.
+
+### Implicit nets
+
+Twenty files rely on Verilog-2001 implicit nets. Icarus, Verilator, and
+Yosys's default mode accept them, but LibreLane reads sources with
+`read_verilog -noautowire`, which turns undeclared identifiers into hard
+errors. Each affected file now starts with:
+
+```verilog
+// Legacy RTL relies on Verilog-2001 implicit nets; LibreLane reads with
+// -noautowire, so restore the standard default explicitly.
+`default_nettype wire
+```
+
+The directive restores the language default for that file and does not
+change the synthesized logic. The files are in `sparc/lsu/`, `sparc/spu/`,
+`sparc/tlu/`, and `sparc/exu/`; they contained 302 implicit nets in total.
+
+### Asynchronous-reset cells
+
+The seven async-reset flops in
+`design/sys/iop/common/rtl/swrvr_clib.v` used a ternary expression as the
+reset value with an asynchronous reset in the sensitivity list. Older Yosys
+releases rejected this with "Multiple edge sensitive events found for this
+signal". The cells now use an equivalent `if (reset) ... else ...` form.
+The Stage 2 Icarus and Verilator regression passes with this change.
+
+## Legacy binaries and boot firmware
+
+The tree no longer contains prebuilt executables or boot firmware. Earlier
+revisions bundled Sun's `tools/` (238 32-bit SPARC/Solaris and i386 ELF
+programs), the Xilinx ML505/ML410 EDK artifacts, and eight 1 MiB PROM images
+under the original release's `design/sys/edk/os/proms/`. All of these have
+been removed. The open flows read only `port/config/core1.config` and the `.flist` files under
+`design/` and `verif/`, so `design/`, `lib/`, and `port/` are the build
+inputs. The open port does not use the PROM images; its boot image is a few
+hard-coded instructions.
+
+The removed PROM images can be obtained again from the original OpenSPARC T1
+archive; QEMU's SPARC64 documentation links the archive and the `S10image/`
+firmware directory:
+<https://www.qemu.org/docs/master/system/target-sparc64.html>. For
+source-based firmware work:
+
+- `openbios/openbios` is a GPL-2.0 Open Firmware implementation, but it has
+  no sun4v/T1 target. Its SPARC64 port is the QEMU sun4u (UltraSPARC IIi)
+  firmware and cannot run the T1 hypervisor.
+- `openbios/openboot` and the `masa-murayama/qemu-sun4v-hypervisor` /
+  `masa-murayama/qemu-sun4v-openboot` trees contain Sun OBP and hypervisor
+  sources with T1 (`niagara`, `t1_fpga`) targets. The hypervisor tree's
+  `t1_fpga/q.bin` is byte-identical to the hypervisor payload at offset
+  `0x2_0000` in the removed PROM images. These trees still require a
+  Solaris/SPARC build environment (Sun Studio, Solaris assembler/linker,
+  SCCS) and the QEMU variants have no build documentation, so none is a
+  drop-in replacement here.
+
+The Xilinx EDK/Aurora reference-design trees (`design/sys/edk/` and
+`design/sys/edk_bee3/`) have been removed from the open tree: they depend on
+MicroBlaze, MIG, and Aurora IP that the open flow cannot build, and the
+`edk_bee3` copy duplicated the Aurora sources. The only firmware artifact the
+open flow still uses is the GPL `mbfw_diag_memimage.c` memory image, kept as
+`port/firmware/mbfw_diag_memimage.c` for the `make memimage` target.
+
+## Known limitations
+
+- The original Vera/PLI regression suite is not ported. The Stage 2 smoke test
+  is a new, small test; it does not replace the full T1 verification
+  environment. The legacy `sims` flow and its Solaris binaries are not
+  included.
+- The smoke test covers one core, one thread, and only the PCX/CPX interface.
+  It uses a hard-coded instruction image and a simple IFILL responder. It has
+  no L2 cache model, DRAM model, MMU page tables, I/O bridge, general
+  interrupt support, console, or boot loader.
+- `--mode full` file lists include verification sources, but they have not
+  been made buildable in an open-source simulator.
+- Verilator still reports legacy width, implicit-net, and unused-signal
+  warnings. They are reported but not yet cleaned up. The simulation target
+  uses `--timing` to model the `#10` clock delay; first-build time is several
+  minutes.
+- The Yosys `sparc` check is parse and hierarchy validation. The Stage 3
+  flows perform real synthesis, but the full-core ASIC result is not
+  P&R-ready: sky130 SRAM macros are not available, so memories become
+  flip-flops, and the core is not partitioned for physical design.
+- The full T1 core packs to 76% of the GW5AST-138 LUT4 sites, and nextpnr
+  legalization rejects it at that density in this environment. `make -C port
+  fpga` is a full-core synthesis and place-and-route attempt, not a guaranteed
+  bitstream; `make -C port fpga-smoke` is the quick supported bitstream path.
+  None of the bitstreams have been tested on physical hardware.
+- There is no external memory, L2 cache, I/O bridge, console, boot loader, or
+  general interrupt support in the FPGA wrapper. It boots a hard-coded
+  instruction image and proves that the core, PCX/CPX interface, I-cache
+  fill, and branch execution work.
+- No ASIC clock generation, I/O pads, DFT/scan insertion, or full-chip
+  floorplan is provided. The LibreLane flow covers a leaf block and
+  full-core synthesis feasibility only.
+- The original prebuilt Solaris binaries, EDK payloads, and PROM images are
+  not included. Rebuilding the boot firmware requires the upstream
+  OpenSPARC/Sun OBP sources and a Solaris/SPARC toolchain.
+
+## Repository layout
+
+| Path | Contents |
+| --- | --- |
+| `design/` | T1 RTL, SRAM models, clock/pad wrappers |
+| `lib/` | Library models, including the `u1` behavioral library |
+| `verif/` | Original verification environment, monitors, and testbenches |
+| `doc/` | Original design and verification PDFs |
+| `port/` | File-list generator, Makefile, simulation tests, build outputs |
+| `port/config/` | `core1.config`, the Sun `sims` manifest used by the open flow |
+| `port/fpga/` | Tang Mega 138K FPGA wrappers and pin constraints |
+| `port/asic/` | LibreLane configuration, smoke block, and nix wrapper |
+| `port/firmware/` | GPL memory image used by the `memimage` target |
+| `port/stim/` | Playback stimulus archive (`thread1_mini`) and `l2_buf.mem` |
+| `port/PLAYBACK.md` | Playback lane usage and status |
+| `port/scripts/` | File-list, Yosys, and LibreLane config generators |
+
+## Original Sun environments and documentation
+
+The original database defines three `sims` environments:
+
+- `thread1`: one SPARC core without the Stream Processing Unit, plus cache,
+  memory, and crossbar; no I/O subsystem.
+- `core1`: one full SPARC core, plus cache, memory, and crossbar; no I/O
+  subsystem.
+- `chip8`: the full T1 chip with eight cores, caches, memory, crossbar, and
+  the I/O subsystem.
+
+The open port uses the `core1` environment for its file lists and smoke test.
+The original `sims` regression groups (`thread1_mini`, `thread1_full`,
+`core1_mini`, `core1_full`, `chip8_mini`, `chip8_full`) required VCS or
+NC-Verilog, the SAS and Midas tools, Vera, and a Solaris host. That flow is
+not included or supported here.
+
+The original documentation is under `doc/`:
+
+- `OpenSPARCT1_DVGuide.pdf`: processor design and verification user's guide
+- `OpenSPARCT1_ExternalInterface.pdf`: external interface specification
+- `OpenSPARCT1_DataSheet.pdf`: processor datasheet
+- `OpenSPARCT1_MegaCell.pdf`: megacell specification
+- `OpenSPARCT1_Micro_Arch.pdf`: micro-architecture specification
+
+## Roadmap
+
+- Stage 2 (complete): pure-Verilog core smoke test, Icarus and Verilator
+  simulation targets, a regression entry point, and no Vera/PLI dependency in
+  the new flow.
+- Stage 3 (complete): FPGA wrapper with nextpnr/Gowin synthesis and
+  bitstream flow, a fast toolchain bitstream, an ASIC leaf-block flow
+  through LibreLane/sky130, and a full-core ASIC synthesis configuration.
+- Stage 4: close timing on the full FPGA core or a reduced/congestion-aware
+  variant, replace inferred memories with ASIC SRAM macros, partition the
+  ASIC design, and add external memory/interrupt/console support.
+
+## License
+
+OpenSPARC T1 is distributed under the GNU General Public License, version 2
+only (`GPL-2.0-only`). See `LICENSE` for the license text. The original Sun
+copyright headers in the RTL and verification files are retained.

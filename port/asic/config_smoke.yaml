@@ -1,0 +1,10 @@
+DESIGN_NAME: t1_asic_smoke
+VERILOG_FILES:
+  - dir::../../design/sys/iop/sparc/exu/rtl/sparc_exu_aluadder64.v
+  - dir::t1_asic_smoke.v
+
+CLOCK_PORT: clk
+CLOCK_PERIOD: 15
+
+FP_CORE_UTIL: 40
+PL_TARGET_DENSITY_PCT: 50

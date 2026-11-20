@@ -1,0 +1,28 @@
+# port/env/dram - Phase-1 behavioral DRAM environment
+
+Copies (never moved) of the Sun behavioral DDR2+ECC channel models:
+
+- `cmp_dram.v`, `ch_mem.v`, `cmp_dram_mon.v`, `dimm_if_mon.v`,
+  `dram_mon.v`, `cmp_mem.v`  <- ~/t1_dram_models/env_cmp/
+- `cross_module.h` is not copied here; the monitors include the canonical
+  `verif/env/cmp/cross_module.h` via `-Iverif/env/cmp` in the Makefile.
+- The original Sun `dimm.v` backup was removed; `dimm_mem.v` is the
+  Denali-free port of that model.
+
+Icarus-Verilog adaptations (documented inline, marked "IVPORT"):
+
+1. `cmp_dram.v`: all cross-module `force`/`release` statements commented
+   out (382, marked IVPORT-NOP); the two always blocks and the
+   WARM_RESET initial block that referenced `DCTLPATH*.dram_que.* via
+   XMR deleted; the cmp_dram_mon instantiation guarded with
+   `IVPORT_NO_MON (defined by `make cmp-build`).
+2. `dimm_stub.v`: replacement for dimm.v, which needs the Denali PLI
+   tasks $read_mem/$write_mem - unavailable without SJM/PLI.  Stub keeps
+   the same port list, tri-states the data pins (inert DIMMs) so ch_mem
+   elaborates.  The default build uses the functional `dimm_mem.v`.
+3. Not compiled in Phase 1 (iverilog cannot handle their pervasive XMR):
+   `cmp_dram_mon.v`, `dram_mon.v`, `cmp_mem.v` (hierarchical task
+   assignments, cmp_mem.v:33,367).
+
+Wire-up reference: verif/env/cmp/cmp_top.v:607 (cmp_dram inst),
+cmp_top.v:634 (DRAMx_RST_L <- cmp_grst_out_l), cmp_top.v:671 (dram_gclk).
