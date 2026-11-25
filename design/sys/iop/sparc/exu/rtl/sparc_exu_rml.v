@@ -18,6 +18,8 @@
 // Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA.
 // 
 // ========== Copyright Header End ============================================
+`include "sparc_config.h"
+
 ////////////////////////////////////////////////////////////////////////
 /*
 //  Module Name: sparc_exu_rml
@@ -63,6 +65,9 @@ module sparc_exu_rml (/*AUTOARG*/
    tlu_exu_agp, tlu_exu_agp_swap, tlu_exu_agp_tid, tlu_exu_cwp_m, 
    tlu_exu_cwpccr_update_m, ecl_rml_inst_vld_w
    ) ;
+   // Number of per-thread register-window state copies (1/2/4).
+   parameter THREADS = `SPARC_SMT;
+
    input rclk;
    input se;
    input si;
@@ -158,21 +163,12 @@ module sparc_exu_rml (/*AUTOARG*/
    wire          restore_e;
    wire          swap_e;
    wire          agp_wen;
-   wire [1:0]    agp_thr0;
-   wire [1:0]    agp_thr1;
-   wire [1:0]    agp_thr2;
-   wire [1:0]    agp_thr3;
-   wire [1:0]    agp_thr0_next;
-   wire [1:0]    agp_thr1_next;
-   wire [1:0]    agp_thr2_next;
-   wire [1:0]    agp_thr3_next;
-   wire          agp_wen_thr0_w;
-   wire          agp_wen_thr1_w;
-   wire          agp_wen_thr2_w;
-   wire          agp_wen_thr3_w;
-   wire [1:0]    new_agp;   
+   wire [1:0]    agp_thr [0:THREADS-1];
+   wire [1:0]    agp_thr_next [0:THREADS-1];
+   wire          agp_wen_thr_w [0:THREADS-1];
+   wire [1:0]    new_agp;
    wire [1:0]    agp_tid;
-   wire [3:0]    agp_thr;
+   wire [3:0]    agp_thr_sel;
    wire        full_swap_e;
    wire   did_restore_m;
    wire   did_restore_w;
@@ -655,104 +651,55 @@ module sparc_exu_rml (/*AUTOARG*/
    assign rml_irf_new_agp[1:0] = tlu_exu_agp[1:0];
    assign agp_tid[1:0] = tlu_exu_agp_tid[1:0];
 
-`ifdef FPGA_SYN_1THREAD
-   assign rml_irf_old_agp[1:0] = agp_thr0[1:0];
-   assign        agp_wen_thr0_w = (agp_thr[0] & agp_wen) | reset;   
-   // mux between new and current value
-   mux2ds #(2) agp_next0_mux(.dout(agp_thr0_next[1:0]),
-                               .in0(agp_thr0[1:0]),
-                               .in1(new_agp[1:0]),
-                               .sel0(~agp_wen_thr0_w),
-                               .sel1(agp_wen_thr0_w));
-   dff_s #(2) dff_agp_thr0(.din(agp_thr0_next[1:0]), .clk(clk), .q(agp_thr0[1:0]),
-                       .se(se), .si(), .so());
-   // generation of controls
-   assign        agp_wen = tlu_exu_agp_swap;
-   assign        rml_irf_swap_global = agp_wen;
-   assign        rml_irf_global_tid[1:0] = agp_tid[1:0];
-
-   // decode tids
-   assign        agp_thr[0] = ~agp_tid[1] & ~agp_tid[0];
-      // Decode agp input
+   // Decode the AGP target thread (TID stays 2 bits).
+   assign agp_wen = tlu_exu_agp_swap;
+   assign rml_irf_swap_global = agp_wen;
+   assign rml_irf_global_tid[1:0] = agp_tid[1:0];
    assign new_agp[1:0] = rml_irf_new_agp[1:0] | {2{reset}};
 
-   // send current global level to ecl for error logging
-   assign rml_ecl_gl_e[1:0] = agp_thr0[1:0];
-   
-`else
-	   
-   //  Output selection for current agp
-   mux4ds #(2) mux_agp_out1(.dout(rml_irf_old_agp[1:0]), 
-                            .sel0(agp_thr[0]),
-                            .sel1(agp_thr[1]),
-                            .sel2(agp_thr[2]),
-                            .sel3(agp_thr[3]),
-                            .in0(agp_thr0[1:0]),
-                            .in1(agp_thr1[1:0]),
-                            .in2(agp_thr2[1:0]),
-                            .in3(agp_thr3[1:0]));
+   genvar ai;
+   generate
+      for (ai = 0; ai < THREADS; ai = ai + 1) begin : gen_agp
+         assign agp_thr_sel[ai] = (agp_tid[1:0] == ai[1:0]);
+         assign agp_wen_thr_w[ai] = (agp_thr_sel[ai] & agp_wen) | reset;
+         mux2ds #(2) agp_next_mux(
+            .dout(agp_thr_next[ai][1:0]),
+            .in0 (agp_thr[ai][1:0]),
+            .in1 (new_agp[1:0]),
+            .sel0(~agp_wen_thr_w[ai]),
+            .sel1(agp_wen_thr_w[ai]));
+         dff_s #(2) dff_agp_thr(
+            .din(agp_thr_next[ai][1:0]), .clk(clk), .q(agp_thr[ai][1:0]),
+            .se(se), .si(), .so());
+      end
+      // Unused thread decodes stay low.
+      for (ai = THREADS; ai < 4; ai = ai + 1) begin : gen_agp_unused
+         assign agp_thr_sel[ai] = 1'b0;
+      end
+   endgenerate
 
-   //////////////////////////////////////
-   //  Storage of agp
-   //////////////////////////////////////
-   
-   // enable input for each thread
-   assign        agp_wen_thr0_w = (agp_thr[0] & agp_wen) | reset;
-   assign        agp_wen_thr1_w = (agp_thr[1] & agp_wen) | reset;
-   assign        agp_wen_thr2_w = (agp_thr[2] & agp_wen) | reset;
-   assign        agp_wen_thr3_w = (agp_thr[3] & agp_wen) | reset;
+   // AGP outputs.  SMT1 keeps T0 unconditionally, as the original guard did.
+   generate
+      if (THREADS == 1) begin : gen_agp_out_1t
+         assign rml_irf_old_agp[1:0]  = agp_thr[0][1:0];
+         assign rml_ecl_gl_e[1:0]     = agp_thr[0][1:0];
+      end else begin : gen_agp_out_mt
+         reg [1:0] old_agp_r, gl_e_r;
+         integer ak, gl;
+         always @* begin
+            old_agp_r = 2'b0;
+            for (ak = 0; ak < THREADS; ak = ak + 1)
+               if (agp_thr_sel[ak]) old_agp_r = agp_thr[ak];
+         end
+         always @* begin
+            gl_e_r = 2'b0;
+            for (gl = 0; gl < THREADS; gl = gl + 1)
+               if (tid_e[1:0] == gl[1:0]) gl_e_r = agp_thr[gl];
+         end
+         assign rml_irf_old_agp[1:0] = old_agp_r;
+         assign rml_ecl_gl_e[1:0]    = gl_e_r;
+      end
+   endgenerate
 
-   // mux between new and current value
-   mux2ds #(2) agp_next0_mux(.dout(agp_thr0_next[1:0]),
-                               .in0(agp_thr0[1:0]),
-                               .in1(new_agp[1:0]),
-                               .sel0(~agp_wen_thr0_w),
-                               .sel1(agp_wen_thr0_w));
-   mux2ds #(2) agp_next1_mux(.dout(agp_thr1_next[1:0]),
-                               .in0(agp_thr1[1:0]),
-                               .in1(new_agp[1:0]),
-                               .sel0(~agp_wen_thr1_w),
-                               .sel1(agp_wen_thr1_w));
-   mux2ds #(2) agp_next2_mux(.dout(agp_thr2_next[1:0]),
-                               .in0(agp_thr2[1:0]),
-                               .in1(new_agp[1:0]),
-                               .sel0(~agp_wen_thr2_w),
-                               .sel1(agp_wen_thr2_w));
-   mux2ds #(2) agp_next3_mux(.dout(agp_thr3_next[1:0]),
-                               .in0(agp_thr3[1:0]),
-                               .in1(new_agp[1:0]),
-                               .sel0(~agp_wen_thr3_w),
-                               .sel1(agp_wen_thr3_w));
-
-   // store new value
-   dff_s #(2) dff_agp_thr0(.din(agp_thr0_next[1:0]), .clk(clk), .q(agp_thr0[1:0]),
-                       .se(se), .si(), .so());
-   dff_s #(2) dff_agp_thr1(.din(agp_thr1_next[1:0]), .clk(clk), .q(agp_thr1[1:0]),
-                       .se(se), .si(), .so());
-   dff_s #(2) dff_agp_thr2(.din(agp_thr2_next[1:0]), .clk(clk), .q(agp_thr2[1:0]),
-                       .se(se), .si(), .so());
-   dff_s #(2) dff_agp_thr3(.din(agp_thr3_next[1:0]), .clk(clk), .q(agp_thr3[1:0]),
-                       .se(se), .si(), .so());
-   
-   // generation of controls
-   assign        agp_wen = tlu_exu_agp_swap;
-   assign        rml_irf_swap_global = agp_wen;
-   assign        rml_irf_global_tid[1:0] = agp_tid[1:0];
-
-   // decode tids
-   assign        agp_thr[0] = ~agp_tid[1] & ~agp_tid[0];
-   assign        agp_thr[1] = ~agp_tid[1] & agp_tid[0];
-   assign        agp_thr[2] = agp_tid[1] & ~agp_tid[0];
-   assign        agp_thr[3] = agp_tid[1] & agp_tid[0];
-   
-   // Decode agp input
-   assign new_agp[1:0] = rml_irf_new_agp[1:0] | {2{reset}};
-
-   // send current global level to ecl for error logging
-   assign rml_ecl_gl_e[1:0] = ((tid_e[1:0] == 2'b00)? agp_thr0[1:0]:
-                               (tid_e[1:0] == 2'b01)? agp_thr1[1:0]:
-                               (tid_e[1:0] == 2'b10)? agp_thr2[1:0]:
-                                                              agp_thr3[1:0]);
-`endif // !`ifdef FPGA_SYN_1THREAD
    
 endmodule // sparc_exu_rml

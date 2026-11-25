@@ -48,6 +48,9 @@ module sparc_ffu_dp (/*AUTOARG*/
    ctl_dp_fsr_sel_ld, ctl_dp_fsr_sel_fpu, ctl_dp_gsr_wsr_w2, 
    ctl_dp_thr_e, ctl_dp_new_rs1, ctl_dp_ecc_sel_frf
    ) ;
+   // Number of per-thread FP state copies (1/2/4).
+   parameter THREADS = `SPARC_SMT;
+
    input rclk;
    input se;
    input si;
@@ -147,33 +150,14 @@ module sparc_ffu_dp (/*AUTOARG*/
    wire [63:0] corr_data;
    wire [63:0] ecc_data_in;
 
-   wire [27:0] 	 current_fsr,
-		 t0_fsr,
-		 t1_fsr,
-		 t2_fsr,
-		 t3_fsr;
-   wire [27:0] 	 t0_fsr_nxt,
-		 t1_fsr_nxt,
-		 t2_fsr_nxt,
-		 t3_fsr_nxt;
-   wire [27:0] 	 t0_ldfsr_data,
-		             t0_fpufsr_data;
-   wire [27:0] 	 t1_ldfsr_data,
-		             t1_fpufsr_data;
-   wire [27:0] 	 t2_ldfsr_data,
-		             t2_fpufsr_data;
-   wire [27:0] 	 t3_ldfsr_data,
-		             t3_fpufsr_data;
-
-   wire [36:0]   gsr_e;
-   wire [36:0]   t0_gsr;
-   wire [36:0]   t0_gsr_nxt;
-   wire [36:0]   t1_gsr;
-   wire [36:0]   t1_gsr_nxt;
-   wire [36:0]   t2_gsr;
-   wire [36:0]   t2_gsr_nxt;
-   wire [36:0]   t3_gsr;
-   wire [36:0]   t3_gsr_nxt;
+   wire [27:0] current_fsr;
+   wire [27:0] fsr         [0:THREADS-1];
+   wire [27:0] fsr_nxt     [0:THREADS-1];
+   wire [27:0] ldfsr_data  [0:THREADS-1];
+   wire [27:0] fpufsr_data [0:THREADS-1];
+   wire [36:0] gsr_e;
+   wire [36:0] gsr         [0:THREADS-1];
+   wire [36:0] gsr_nxt     [0:THREADS-1];
 
    assign        reset = ~ctl_dp_rst_l;
    assign        clk= rclk;
@@ -292,148 +276,51 @@ module sparc_ffu_dp (/*AUTOARG*/
    /////////////////////////////////////////////////////////
    // FSR takes data from load
    // fsr is set by ldfsr, ldxfsr, or any fpu operation
-   assign t0_ldfsr_data[27:0] = {ctl_dp_fcc_w2[7:2],     // fcc3,2,1
-			                           lsu_ffu_ld_data_d1[31:30],   // RND mode
-			                           //2'b0,                     // rsvd
-			                           lsu_ffu_ld_data_d1[27:23],   // TEM
-			                           //6'b0,                     // NS, rsvd, ver
-			                           t0_fsr[14:12],       // ftt
-			                           //2'b0,                     // qne, rsvd
-			                           lsu_ffu_ld_data_d1[11:0]};   // fcc0, aexc, cexc
-   
-   assign t0_fpufsr_data[27:0] = {ctl_dp_fcc_w2[7:2],
-			                            t0_fsr[21:20],  // rnd
-			                            t0_fsr[19:15],  // TEM
-			                            ctl_dp_ftt_w2[2:0],  // ftt
-			                            ctl_dp_fcc_w2[1:0],
-			                            ctl_dp_exc_w2[9:0]};
+   genvar fi;
+   generate
+      for (fi = 0; fi < THREADS; fi = fi + 1) begin : gen_fsr
+         assign ldfsr_data[fi][27:0] = {ctl_dp_fcc_w2[7:2],       // fcc3,2,1
+                                        lsu_ffu_ld_data_d1[31:30], // RND
+                                        lsu_ffu_ld_data_d1[27:23], // TEM
+                                        fsr[fi][14:12],            // ftt
+                                        lsu_ffu_ld_data_d1[11:0]}; // fcc0,aexc,cexc
+         assign fpufsr_data[fi][27:0] = {ctl_dp_fcc_w2[7:2],
+                                         fsr[fi][21:20],  // rnd
+                                         fsr[fi][19:15],  // TEM
+                                         ctl_dp_ftt_w2[2:0],
+                                         ctl_dp_fcc_w2[1:0],
+                                         ctl_dp_exc_w2[9:0]};
+         mux3ds #(28) fsr_mux(
+            .dout (fsr_nxt[fi][27:0]),
+            .in0  (fsr[fi][27:0]),
+            .in1  (ldfsr_data[fi][27:0]),
+            .in2  (fpufsr_data[fi][27:0]),
+            .sel0 (ctl_dp_fsr_sel_old[fi]),
+            .sel1 (ctl_dp_fsr_sel_ld[fi]),
+            .sel2 (ctl_dp_fsr_sel_fpu[fi]));
+         // only 28 flops are needed; the remaining FSR bits are always 0
+         dffr_s #(28) fsr_reg(
+            .din (fsr_nxt[fi][27:0]), .q (fsr[fi][27:0]),
+            .rst (reset), .clk (clk), .se(se), .si(), .so());
+      end
+   endgenerate
 
-   assign t1_ldfsr_data[27:0] = {ctl_dp_fcc_w2[7:2],     // fcc3,2,1
-			                           lsu_ffu_ld_data_d1[31:30],   // RND mode
-			                           //2'b0,                     // rsvd
-			                           lsu_ffu_ld_data_d1[27:23],   // TEM
-			                           //6'b0,                     // NS, rsvd, ver
-			                           t1_fsr[14:12],       // ftt
-			                           //2'b0,                     // qne, rsvd
-			                           lsu_ffu_ld_data_d1[11:0]};   // fcc0, aexc, cexc
-   
-   assign t1_fpufsr_data[27:0] = {ctl_dp_fcc_w2[7:2],
-			                            t1_fsr[21:20],  // rnd
-			                            t1_fsr[19:15],  // TEM
-			                            ctl_dp_ftt_w2[2:0],  // ftt
-			                            ctl_dp_fcc_w2[1:0],
-			                            ctl_dp_exc_w2[9:0]};
+   // Current FSR.  SMT1 keeps T0 unconditionally (as the original guard did).
+   generate
+      if (THREADS == 1) begin : gen_fsr_cur_1t
+         assign current_fsr[27:0] = fsr[0][27:0];
+      end else begin : gen_fsr_cur_mt
+         reg [27:0] current_fsr_r;
+         integer fk;
+         always @* begin
+            current_fsr_r = 28'b0;
+            for (fk = 0; fk < THREADS; fk = fk + 1)
+               if (ctl_dp_fp_thr[fk]) current_fsr_r = fsr[fk];
+         end
+         assign current_fsr[27:0] = current_fsr_r;
+      end
+   endgenerate
 
-   assign t2_ldfsr_data[27:0] = {ctl_dp_fcc_w2[7:2],     // fcc3,2,1
-			                           lsu_ffu_ld_data_d1[31:30],   // RND mode
-			                           //2'b0,                     // rsvd
-			                           lsu_ffu_ld_data_d1[27:23],   // TEM
-			                           //6'b0,                     // NS, rsvd, ver
-			                           t2_fsr[14:12],       // ftt
-			                           //2'b0,                     // qne, rsvd
-			                           lsu_ffu_ld_data_d1[11:0]};   // fcc0, aexc, cexc
-   
-   assign t2_fpufsr_data[27:0] = {ctl_dp_fcc_w2[7:2],
-			                            t2_fsr[21:20],  // rnd
-			                            t2_fsr[19:15],  // TEM
-			                            ctl_dp_ftt_w2[2:0],  // ftt
-			                            ctl_dp_fcc_w2[1:0],
-			                            ctl_dp_exc_w2[9:0]};
-
-   assign t3_ldfsr_data[27:0] = {ctl_dp_fcc_w2[7:2],     // fcc3,2,1
-			                           lsu_ffu_ld_data_d1[31:30],   // RND mode
-			                           //2'b0,                     // rsvd
-			                           lsu_ffu_ld_data_d1[27:23],   // TEM
-			                           //6'b0,                     // NS, rsvd, ver
-			                           t3_fsr[14:12],       // ftt
-			                           //2'b0,                     // qne, rsvd
-			                           lsu_ffu_ld_data_d1[11:0]};   // fcc0, aexc, cexc
-   
-   assign t3_fpufsr_data[27:0] = {ctl_dp_fcc_w2[7:2],
-			                            t3_fsr[21:20],  // rnd
-			                            t3_fsr[19:15],  // TEM
-			                            ctl_dp_ftt_w2[2:0],  // ftt
-			                            ctl_dp_fcc_w2[1:0],
-			                            ctl_dp_exc_w2[9:0]};
-
-`ifdef FPGA_SYN_1THREAD
-   
-   mux3ds #(28) fsr0_mux(.dout (t0_fsr_nxt[27:0]),
-		       .in0  (t0_fsr[27:0]),
-		       .in1  (t0_ldfsr_data[27:0]),
-		       .in2  (t0_fpufsr_data[27:0]),
-		       .sel0 (ctl_dp_fsr_sel_old[0]),
-		       .sel1 (ctl_dp_fsr_sel_ld[0]),
-		       .sel2 (ctl_dp_fsr_sel_fpu[0]));   
-   // FSR registers
-   // need only 28 flops for FSR since rest are always 0
-   dffr_s #(28) fsr0_reg(.din (t0_fsr_nxt[27:0]),
-		                 .q   (t0_fsr[27:0]),
-                     .rst(reset),
-		                 .clk (clk), .se(se), .si(), .so());
-   assign current_fsr[27:0] = t0_fsr[27:0];
-   
-`else
-   
-   mux3ds #(28) fsr0_mux(.dout (t0_fsr_nxt[27:0]),
-		       .in0  (t0_fsr[27:0]),
-		       .in1  (t0_ldfsr_data[27:0]),
-		       .in2  (t0_fpufsr_data[27:0]),
-		       .sel0 (ctl_dp_fsr_sel_old[0]),
-		       .sel1 (ctl_dp_fsr_sel_ld[0]),
-		       .sel2 (ctl_dp_fsr_sel_fpu[0]));
-   mux3ds #(28) fsr1_mux(.dout (t1_fsr_nxt[27:0]),
-		       .in0  (t1_fsr[27:0]),
-		       .in1  (t1_ldfsr_data[27:0]),
-		       .in2  (t1_fpufsr_data[27:0]),
-		       .sel0 (ctl_dp_fsr_sel_old[1]),
-		       .sel1 (ctl_dp_fsr_sel_ld[1]),
-		       .sel2 (ctl_dp_fsr_sel_fpu[1]));
-   mux3ds #(28) fsr2_mux(.dout (t2_fsr_nxt[27:0]),
-		       .in0  (t2_fsr[27:0]),
-		       .in1  (t2_ldfsr_data[27:0]),
-		       .in2  (t2_fpufsr_data[27:0]),
-		       .sel0 (ctl_dp_fsr_sel_old[2]),
-		       .sel1 (ctl_dp_fsr_sel_ld[2]),
-		       .sel2 (ctl_dp_fsr_sel_fpu[2]));
-   mux3ds #(28) fsr3_mux(.dout (t3_fsr_nxt[27:0]),
-		       .in0  (t3_fsr[27:0]),
-		       .in1  (t3_ldfsr_data[27:0]),
-		       .in2  (t3_fpufsr_data[27:0]),
-		       .sel0 (ctl_dp_fsr_sel_old[3]),
-		       .sel1 (ctl_dp_fsr_sel_ld[3]),
-		       .sel2 (ctl_dp_fsr_sel_fpu[3]));
-   
-   // FSR registers
-   // need only 28 flops for FSR since rest are always 0
-   dffr_s #(28) fsr0_reg(.din (t0_fsr_nxt[27:0]),
-		                 .q   (t0_fsr[27:0]),
-                     .rst(reset),
-		                 .clk (clk), .se(se), .si(), .so());
-   dffr_s #(28) fsr1_reg(.din (t1_fsr_nxt[27:0]),
-		                 .q   (t1_fsr[27:0]),
-                     .rst(reset),
-		                 .clk (clk), .se(se), .si(), .so());
-   dffr_s #(28) fsr2_reg(.din (t2_fsr_nxt[27:0]),
-		                 .q   (t2_fsr[27:0]),
-                     .rst(reset),
-		                 .clk (clk), .se(se), .si(), .so());
-   dffr_s #(28) fsr3_reg(.din (t3_fsr_nxt[27:0]),
-		                 .q   (t3_fsr[27:0]),
-                     .rst(reset),
-		                 .clk (clk), .se(se), .si(), .so());
-
-   // Current FSR
-   mux4ds #(28) curr_fsr_mux(.dout (current_fsr[27:0]),
-			   .in0  (t0_fsr[27:0]),
-			   .in1  (t1_fsr[27:0]),
-			   .in2  (t2_fsr[27:0]),
-			   .in3  (t3_fsr[27:0]),
-			   .sel0 (ctl_dp_fp_thr[0]),
-			   .sel1 (ctl_dp_fp_thr[1]),
-			   .sel2 (ctl_dp_fp_thr[2]),
-			   .sel3 (ctl_dp_fp_thr[3]));
-`endif // !`ifdef FPGA_SYN_1THREAD
    
    assign dp_ctl_fsr_fcc = {current_fsr[27:22], current_fsr[11:10]};
    assign dp_ctl_fsr_rnd = current_fsr[21:20];
@@ -475,62 +362,41 @@ module sparc_ffu_dp (/*AUTOARG*/
    // GSR registers
    // need only 37 flops for GSR since rest are always 0
    // and the align and rnd fields are in the ctl block
-`ifdef FPGA_SYN_1THREAD
-   dffr_s #(37) gsr0_reg(.din (t0_gsr_nxt[36:0]),
-		                 .q   (t0_gsr[36:0]),
-                     .rst(reset),
-		                 .clk (clk), .se(se), .si(), .so());
-   assign     t0_gsr_nxt[36:0] = t0_gsr[36:0];
-   assign     gsr_e[36:0] = t0_gsr[36:0];
-   
-`else
-   
-   dffr_s #(37) gsr0_reg(.din (t0_gsr_nxt[36:0]),
-		                 .q   (t0_gsr[36:0]),
-                     .rst(reset),
-		                 .clk (clk), .se(se), .si(), .so());
-   dffr_s #(37) gsr1_reg(.din (t1_gsr_nxt[36:0]),
-		                 .q   (t1_gsr[36:0]),
-                     .rst(reset),
-		                 .clk (clk), .se(se), .si(), .so());
-   dffr_s #(37) gsr2_reg(.din (t2_gsr_nxt[36:0]),
-		                 .q   (t2_gsr[36:0]),
-                     .rst(reset),
-		                 .clk (clk), .se(se), .si(), .so());
-   dffr_s #(37) gsr3_reg(.din (t3_gsr_nxt[36:0]),
-		                 .q   (t3_gsr[36:0]),
-                     .rst(reset),
-		                 .clk (clk), .se(se), .si(), .so());
+   genvar gi;
+   generate
+      for (gi = 0; gi < THREADS; gi = gi + 1) begin : gen_gsr
+         // only 37 flops are needed; align/rnd live in the ctl block
+         dffr_s #(37) gsr_reg(
+            .din (gsr_nxt[gi][36:0]), .q (gsr[gi][36:0]),
+            .rst (reset), .clk (clk), .se(se), .si(), .so());
+         if (THREADS > 1) begin : gen_gsr_wr
+            dp_mux2es #(37) gsr_mux(
+               .dout (gsr_nxt[gi][36:0]),
+               .in0  (gsr[gi][36:0]),
+               .in1  (ctl_dp_wsr_data_w2[36:0]),
+               .sel  (ctl_dp_gsr_wsr_w2[gi]));
+         end else begin : gen_gsr_hold
+            assign gsr_nxt[gi][36:0] = gsr[gi][36:0];
+         end
+      end
+   endgenerate
 
-   dp_mux2es #(37) gsr0_mux(.dout(t0_gsr_nxt[36:0]),
-                            .in0(t0_gsr[36:0]),
-                            .in1(ctl_dp_wsr_data_w2[36:0]),
-                            .sel(ctl_dp_gsr_wsr_w2[0]));
-   dp_mux2es #(37) gsr1_mux(.dout(t1_gsr_nxt[36:0]),
-                            .in0(t1_gsr[36:0]),
-                            .in1(ctl_dp_wsr_data_w2[36:0]),
-                            .sel(ctl_dp_gsr_wsr_w2[1]));
-   dp_mux2es #(37) gsr2_mux(.dout(t2_gsr_nxt[36:0]),
-                            .in0(t2_gsr[36:0]),
-                            .in1(ctl_dp_wsr_data_w2[36:0]),
-                            .sel(ctl_dp_gsr_wsr_w2[2]));
-   dp_mux2es #(37) gsr3_mux(.dout(t3_gsr_nxt[36:0]),
-                            .in0(t3_gsr[36:0]),
-                            .in1(ctl_dp_wsr_data_w2[36:0]),
-                            .sel(ctl_dp_gsr_wsr_w2[3]));
-   
-   
-   // GSR_E
-   mux4ds #(37) curr_gsr_mux(.dout (gsr_e[36:0]),
-			   .in0  (t0_gsr[36:0]),
-			   .in1  (t1_gsr[36:0]),
-			   .in2  (t2_gsr[36:0]),
-			   .in3  (t3_gsr[36:0]),
-			   .sel0 (ctl_dp_thr_e[0]),
-			   .sel1 (ctl_dp_thr_e[1]),
-			   .sel2 (ctl_dp_thr_e[2]),
-			   .sel3 (ctl_dp_thr_e[3]));
-`endif // !`ifdef FPGA_SYN_1THREAD
+   // GSR_E.  SMT1 keeps T0 unconditionally (as the original guard did).
+   generate
+      if (THREADS == 1) begin : gen_gsr_e_1t
+         assign gsr_e[36:0] = gsr[0][36:0];
+      end else begin : gen_gsr_e_mt
+         reg [36:0] gsr_e_r;
+         integer gk;
+         always @* begin
+            gsr_e_r = 37'b0;
+            for (gk = 0; gk < THREADS; gk = gk + 1)
+               if (ctl_dp_thr_e[gk]) gsr_e_r = gsr[gk];
+         end
+         assign gsr_e[36:0] = gsr_e_r;
+      end
+   endgenerate
+
    
    assign     dp_ctl_gsr_scale_e[4:0] = gsr_e[4:0];
    assign     dp_ctl_gsr_mask_e[31:0] = gsr_e[36:5];

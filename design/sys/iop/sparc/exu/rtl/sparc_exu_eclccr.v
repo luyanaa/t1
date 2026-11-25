@@ -25,6 +25,8 @@
 //	the e_stage result and writes on the w stage.
 */
 
+`include "sparc_config.h"
+
 module sparc_exu_eclccr (/*AUTOARG*/
    // Outputs
    exu_ifu_cc_d, exu_tlu_ccr0_w, exu_tlu_ccr1_w, exu_tlu_ccr2_w, 
@@ -65,6 +67,9 @@ module sparc_exu_eclccr (/*AUTOARG*/
    output [7:0] exu_tlu_ccr2_w;
    output [7:0] exu_tlu_ccr3_w;
 
+   // Parameterized per-thread CCR copies (1/2/4).
+   parameter THREADS = `SPARC_SMT;
+
    wire [7:0]   partial_cc_d;   // partial bypassed ccr
    wire [7:0]   alu_cc_e;   // alu combined condition codes
    wire [7:0]   alu_cc_m;   // m stage alu ccs
@@ -77,15 +82,10 @@ module sparc_exu_eclccr (/*AUTOARG*/
    wire         valid_setcc_m;
    wire         valid_setcc_w;
    wire         setcc_w2;
-   wire [7:0]   ccrin_thr0;
-   wire [7:0]   ccrin_thr1;
-   wire [7:0]   ccrin_thr2;
-   wire [7:0]   ccrin_thr3;
+   wire [7:0]   ccrin_thr [0:THREADS-1];
    wire [7:0]   ccr_d;
-   wire [7:0]   ccr_thr0;
-   wire [7:0]   ccr_thr1;
-   wire [7:0]   ccr_thr2;
-   wire [7:0]   ccr_thr3;
+   wire [7:0]   ccr_thr [0:THREADS-1];
+   wire [7:0]   ccr_out [0:3];
    wire         use_alu_cc;
    wire         use_ccr;
    wire         use_cc_e;
@@ -95,22 +95,6 @@ module sparc_exu_eclccr (/*AUTOARG*/
    wire         thr_match_de;
    wire         thrmatch_w;
    wire [1:0]   thr_w2;
-   wire          thr0_w2;
-   wire          thr1_w2;
-   wire          thr2_w2;
-   wire          thr3_w2;
-   wire          wen_thr0_w;    // write enable for each input/thread
-   wire          wen_thr0_w2;
-   wire          wen_thr1_w;
-   wire          wen_thr1_w2;
-   wire          wen_thr2_w;
-   wire          wen_thr2_w2;
-   wire          wen_thr3_w;
-   wire          wen_thr3_w2;
-   wire          wen_thr0_l;      // overall write enable for each thread
-   wire          wen_thr1_l;
-   wire          wen_thr2_l;
-   wire          wen_thr3_l;
    wire          bypass_cc_w;
 
    wire [7:0]    ccr_m;
@@ -161,79 +145,46 @@ module sparc_exu_eclccr (/*AUTOARG*/
    /////////////////////////
    // Storage of ccr
    /////////////////////////
-`ifdef FPGA_SYN_1THREAD
-     
-   assign          thr0_w2 = ~thr_w2[1] & ~thr_w2[0];
-   assign          wen_thr0_w = (thr_w[0] & valid_setcc_w & ~wen_thr0_w2);
-   assign 	   wen_thr0_w2 = thr0_w2 & setcc_w2;
-   assign 	   wen_thr0_l = ~(wen_thr0_w | wen_thr0_w2);    
-   // mux between cc_w, cc_w2, old value, tlu value
-   mux3ds #(8) mux_ccrin0(.dout(ccrin_thr0[7:0]), .sel0(wen_thr0_w),
-                          .sel1(wen_thr0_w2), .sel2(wen_thr0_l),
-                          .in0(exu_ifu_cc_w[7:0]),
-                          .in1(divcntl_ccr_cc_w2[7:0]), .in2(ccr_thr0[7:0]));
-   // store new value
-   dff_s #(8) dff_ccr_thr0(.din(ccrin_thr0[7:0]), .clk(clk), .q(ccr_thr0[7:0]),
-                       .se(se), .si(), .so());
-   assign 	   ccr_d[7:0] = ccr_thr0[7:0];
-   
-`else // !`ifdef FPGA_SYN_1THREAD
-   
-   // decode thr_w2 for mux select
-   assign        thr0_w2 = ~thr_w2[1] & ~thr_w2[0];
-   assign        thr1_w2 = ~thr_w2[1] & thr_w2[0];
-   assign        thr2_w2 = thr_w2[1] & ~thr_w2[0];
-   assign        thr3_w2 = thr_w2[1] & thr_w2[0];
-   // enable input for each thread
-   assign        wen_thr0_w = (thr_w[0] & valid_setcc_w & ~wen_thr0_w2);
-   assign        wen_thr0_w2 = thr0_w2 & setcc_w2;
-   assign        wen_thr0_l = ~(wen_thr0_w | wen_thr0_w2);  
-   assign        wen_thr1_w = (thr_w[1] & valid_setcc_w & ~wen_thr1_w2);
-   assign        wen_thr1_w2 = (thr1_w2 & setcc_w2);
-   assign        wen_thr1_l = ~(wen_thr1_w | wen_thr1_w2);  
-   assign        wen_thr2_w = (thr_w[2] & valid_setcc_w & ~wen_thr2_w2);
-   assign        wen_thr2_w2 = (thr2_w2 & setcc_w2);
-   assign        wen_thr2_l = ~(wen_thr2_w | wen_thr2_w2);  
-   assign        wen_thr3_w = (thr_w[3] & valid_setcc_w & ~wen_thr3_w2);
-   assign        wen_thr3_w2 = (thr3_w2 & setcc_w2);
-   assign        wen_thr3_l = ~(wen_thr3_w | wen_thr3_w2);  
+   genvar gi, gj;
+   generate
+      for (gi = 0; gi < THREADS; gi = gi + 1) begin : gen_ccr
+         wire        thr_w2_dec = (thr_w2 == gi);
+         wire        wen_w2     = thr_w2_dec & setcc_w2;
+         wire        wen_w      = (thr_w[gi] & valid_setcc_w & ~wen_w2);
+         wire        wen_l      = ~(wen_w | wen_w2);
 
-   // mux between cc_w, cc_w2, old value, tlu value
-   mux3ds #(8) mux_ccrin0(.dout(ccrin_thr0[7:0]), .sel0(wen_thr0_w),
-                          .sel1(wen_thr0_w2), .sel2(wen_thr0_l),
-                          .in0(exu_ifu_cc_w[7:0]),
-                          .in1(divcntl_ccr_cc_w2[7:0]), .in2(ccr_thr0[7:0]));
-   mux3ds #(8) mux_ccrin1(.dout(ccrin_thr1[7:0]), .sel0(wen_thr1_w),
-                          .sel1(wen_thr1_w2), .sel2(wen_thr1_l),
-                          .in0(exu_ifu_cc_w[7:0]),
-                          .in1(divcntl_ccr_cc_w2[7:0]), .in2(ccr_thr1[7:0]));
-   mux3ds #(8) mux_ccrin2(.dout(ccrin_thr2[7:0]), .sel0(wen_thr2_w),
-                          .sel1(wen_thr2_w2), .sel2(wen_thr2_l),
-                          .in0(exu_ifu_cc_w[7:0]),
-                          .in1(divcntl_ccr_cc_w2[7:0]), .in2(ccr_thr2[7:0]));
-   mux3ds #(8) mux_ccrin3(.dout(ccrin_thr3[7:0]), .sel0(wen_thr3_w),
-                          .sel1(wen_thr3_w2), .sel2(wen_thr3_l),
-                          .in0(exu_ifu_cc_w[7:0]),
-                          .in1(divcntl_ccr_cc_w2[7:0]), .in2(ccr_thr3[7:0]));
+         // mux between cc_w, cc_w2, old value, tlu value
+         mux3ds #(8) mux_ccrin(
+            .dout(ccrin_thr[gi][7:0]),
+            .sel0(wen_w), .sel1(wen_w2), .sel2(wen_l),
+            .in0(exu_ifu_cc_w[7:0]),
+            .in1(divcntl_ccr_cc_w2[7:0]),
+            .in2(ccr_thr[gi][7:0]));
+         // store new value
+         dff_s #(8) dff_ccr(
+            .din(ccrin_thr[gi][7:0]), .clk(clk),
+            .q(ccr_thr[gi][7:0]), .se(se), .si(), .so());
+      end
 
-   // store new value
-   dff_s #(8) dff_ccr_thr0(.din(ccrin_thr0[7:0]), .clk(clk), .q(ccr_thr0[7:0]),
-                       .se(se), .si(), .so());
-   dff_s #(8) dff_ccr_thr1(.din(ccrin_thr1[7:0]), .clk(clk), .q(ccr_thr1[7:0]),
-                       .se(se), .si(), .so());
-   dff_s #(8) dff_ccr_thr2(.din(ccrin_thr2[7:0]), .clk(clk), .q(ccr_thr2[7:0]),
-                       .se(se), .si(), .so());
-   dff_s #(8) dff_ccr_thr3(.din(ccrin_thr3[7:0]), .clk(clk), .q(ccr_thr3[7:0]),
-                       .se(se), .si(), .so());
+      // Publish all four TLU CCR outputs; unused threads read 0.
+      for (gj = 0; gj < 4; gj = gj + 1) begin : gen_ccr_out
+         if (gj < THREADS)
+            assign ccr_out[gj] = ccr_thr[gj];
+         else
+            assign ccr_out[gj] = 8'b0;
+      end
+   endgenerate
 
+   // Select the requested thread's CCR for the pipeline.
+   reg [7:0] ccr_d_r;
+   integer k;
+   always @* begin
+      ccr_d_r = 8'b0;
+      for (k = 0; k < 4; k = k + 1)
+         if (thrdec_d[k]) ccr_d_r = ccr_out[k];
+   end
+   assign ccr_d[7:0] = ccr_d_r[7:0];
 
-   // mux between the 4 sets of ccrs
-   mux4ds #(8) mux_ccr_out(.dout(ccr_d[7:0]), .sel0(thrdec_d[0]),
-                         .sel1(thrdec_d[1]), .sel2(thrdec_d[2]),
-                         .sel3(thrdec_d[3]), .in0(ccr_thr0[7:0]),
-                         .in1(ccr_thr1[7:0]), .in2(ccr_thr2[7:0]),
-                         .in3(ccr_thr3[7:0]));
-`endif // !`ifdef FPGA_SYN_1THREAD
    
    // bypass the ccs to the output.  Only alu result needs to be bypassed
    assign        exu_ifu_cc_d[7:0] = (use_cc_e)? alu_cc_e[7:0]: partial_cc_d[7:0]; 
@@ -255,10 +206,10 @@ module sparc_exu_eclccr (/*AUTOARG*/
    assign        thrmatch_w = ~(tid_dxorw[1] | tid_dxorw[0]);
 
    // generate ccr_w for the tlu
-   assign        exu_tlu_ccr0_w[7:0] = ccr_thr0[7:0];
-   assign        exu_tlu_ccr1_w[7:0] = ccr_thr1[7:0];
-   assign        exu_tlu_ccr2_w[7:0] = ccr_thr2[7:0];
-   assign        exu_tlu_ccr3_w[7:0] = ccr_thr3[7:0];
+   assign        exu_tlu_ccr0_w[7:0] = ccr_out[0][7:0];
+   assign        exu_tlu_ccr1_w[7:0] = ccr_out[1][7:0];
+   assign        exu_tlu_ccr2_w[7:0] = ccr_out[2][7:0];
+   assign        exu_tlu_ccr3_w[7:0] = ccr_out[3][7:0];
 
    
 endmodule // sparc_exu_eclccr

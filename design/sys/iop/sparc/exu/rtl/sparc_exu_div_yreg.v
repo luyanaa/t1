@@ -21,10 +21,10 @@
 ////////////////////////////////////////////////////////////////////////
 /*
 //  Module Name: sparc_exu_div_yreg
-//	Description: The 4 32 bit y registers.  It can be written to
-// 		twice each cycle because by definition the writes must come
-//		from different threads.  There is no bypassing because wry switches out.
+//	Description: The per-thread 32 bit Y registers.
 */
+`include "sparc_config.h"
+
 module sparc_exu_div_yreg (/*AUTOARG*/
    // Outputs
    yreg_mdq_y_e, div_ecl_yreg_0_l, 
@@ -33,6 +33,9 @@ module sparc_exu_div_yreg (/*AUTOARG*/
    ecl_div_yreg_wen_w, ecl_div_yreg_wen_g, ecl_div_yreg_wen_l, 
    ecl_div_yreg_data_31_g, ecl_div_yreg_shift_g
    ) ;
+   // Number of per-thread Y registers (1/2/4 from sparc_config.h).
+   parameter THREADS = `SPARC_SMT;
+
    input clk;
    input se;
    input [31:0] byp_div_yreg_data_w;
@@ -47,102 +50,55 @@ module sparc_exu_div_yreg (/*AUTOARG*/
    output [31:0] yreg_mdq_y_e;
    output [3:0]  div_ecl_yreg_0_l;
 
-   wire [31:0]   next_yreg_thr0;// next value for yreg
-   wire [31:0]   next_yreg_thr1;
-   wire [31:0]   next_yreg_thr2;
-   wire [31:0]   next_yreg_thr3;
-   wire [31:0]   yreg_thr0;     // current value of yreg
-   wire [31:0]   yreg_thr1;
-   wire [31:0]   yreg_thr2;
-   wire [31:0]   yreg_thr3;
+   wire [31:0]   next_yreg_thr [0:THREADS-1];
+   wire [31:0]   yreg_thr [0:THREADS-1];
    wire [3:0]    div_ecl_yreg_0;
    wire [31:0]   yreg_data_w1;
 
-
-   //////////////////////////////////
-   //  Output selection for yreg
-   //////////////////////////////////
-   // output the LSB of all 4 regs
-   assign        div_ecl_yreg_0[3:0] = {yreg_thr3[0],yreg_thr2[0],yreg_thr1[0],yreg_thr0[0]};
-   assign        div_ecl_yreg_0_l[3:0] = ~div_ecl_yreg_0[3:0];
-
-`ifdef FPGA_SYN_1THREAD
-
-   assign 	 yreg_mdq_y_e[31:0] = yreg_thr0[31:0];
-
-`else
-   
-   // mux between the 4 yregs
-   mux4ds #(32) mux_yreg_out(.dout(yreg_mdq_y_e[31:0]), .sel0(ecl_div_thr_e[0]),
-                         .sel1(ecl_div_thr_e[1]), .sel2(ecl_div_thr_e[2]),
-                         .sel3(ecl_div_thr_e[3]), .in0(yreg_thr0[31:0]),
-                         .in1(yreg_thr1[31:0]), .in2(yreg_thr2[31:0]),
-                         .in3(yreg_thr3[31:0]));
-`endif
-   
-   //////////////////////////////////////
-   //  Storage of yreg
-   //////////////////////////////////////
    // pass along yreg w to w2 (for control signal timing)
-   dff_s #(32) yreg_dff_w2w2(.din(byp_div_yreg_data_w[31:0]), .clk(clk), .q(yreg_data_w1[31:0]),
-                           .se(se), .si(), .so());
+   dff_s #(32) yreg_dff_w2w2(.din(byp_div_yreg_data_w[31:0]), .clk(clk),
+                             .q(yreg_data_w1[31:0]), .se(se), .si(), .so());
 
+   genvar i;
+   generate
+      for (i = 0; i < THREADS; i = i + 1) begin : gen_yreg
+         // mux between yreg_w, yreg_g, old value, shifted value
+         mux4ds #(32) mux_yregin(
+            .dout(next_yreg_thr[i][31:0]),
+            .sel0(ecl_div_yreg_wen_w[i]),
+            .sel1(ecl_div_yreg_wen_g[i]),
+            .sel2(ecl_div_yreg_wen_l[i]),
+            .sel3(ecl_div_yreg_shift_g[i]),
+            .in0(yreg_data_w1[31:0]),
+            .in1(mul_div_yreg_data_g[31:0]),
+            .in2(yreg_thr[i][31:0]),
+            .in3({ecl_div_yreg_data_31_g, yreg_thr[i][31:1]}));
+         dff_s #(32) dff_yreg(
+            .din(next_yreg_thr[i][31:0]), .clk(clk),
+            .q(yreg_thr[i][31:0]), .se(se), .si(), .so());
+      end
+   endgenerate
 
-   // mux between yreg_w, yreg_g, old value
-   mux4ds #(32) mux_yregin0(.dout(next_yreg_thr0[31:0]), 
-                          .sel0(ecl_div_yreg_wen_w[0]),
-                          .sel1(ecl_div_yreg_wen_g[0]), 
-                          .sel2(ecl_div_yreg_wen_l[0]),
-                          .sel3(ecl_div_yreg_shift_g[0]),
-                          .in0(yreg_data_w1[31:0]),
-                          .in1(mul_div_yreg_data_g[31:0]), 
-                          .in2(yreg_thr0[31:0]),
-                          .in3({ecl_div_yreg_data_31_g, yreg_thr0[31:1]}));
-`ifdef FPGA_SYN_1THREAD
-   assign 	 next_yreg_thr1[31:0] = yreg_data_w1[31:0];
-   assign 	 next_yreg_thr2[31:0] = yreg_data_w1[31:0];
-   assign 	 next_yreg_thr3[31:0] = yreg_data_w1[31:0];
-   
-`else
-   
-   mux4ds #(32) mux_yregin1(.dout(next_yreg_thr1[31:0]), 
-                          .sel0(ecl_div_yreg_wen_w[1]),
-                          .sel1(ecl_div_yreg_wen_g[1]), 
-                          .sel2(ecl_div_yreg_wen_l[1]),
-                          .sel3(ecl_div_yreg_shift_g[1]),
-                          .in0(yreg_data_w1[31:0]),
-                          .in1(mul_div_yreg_data_g[31:0]), 
-                          .in2(yreg_thr1[31:0]),
-                          .in3({ecl_div_yreg_data_31_g, yreg_thr1[31:1]}));
-   mux4ds #(32) mux_yregin2(.dout(next_yreg_thr2[31:0]), 
-                          .sel0(ecl_div_yreg_wen_w[2]),
-                          .sel1(ecl_div_yreg_wen_g[2]), 
-                          .sel2(ecl_div_yreg_wen_l[2]),
-                          .sel3(ecl_div_yreg_shift_g[2]),
-                          .in0(yreg_data_w1[31:0]),
-                          .in1(mul_div_yreg_data_g[31:0]), 
-                          .in2(yreg_thr2[31:0]),
-                          .in3({ecl_div_yreg_data_31_g, yreg_thr2[31:1]}));
-   mux4ds #(32) mux_yregin3(.dout(next_yreg_thr3[31:0]), 
-                          .sel0(ecl_div_yreg_wen_w[3]),
-                          .sel1(ecl_div_yreg_wen_g[3]), 
-                          .sel2(ecl_div_yreg_wen_l[3]),
-                          .sel3(ecl_div_yreg_shift_g[3]),
-                          .in0(yreg_data_w1[31:0]),
-                          .in1(mul_div_yreg_data_g[31:0]), 
-                          .in2(yreg_thr3[31:0]),
-                          .in3({ecl_div_yreg_data_31_g, yreg_thr3[31:1]}));
-`endif // !`ifdef FPGA_SYN_1THREAD
-   
-   // store new value
-   dff_s #(32) dff_yreg_thr0(.din(next_yreg_thr0[31:0]), .clk(clk), .q(yreg_thr0[31:0]),
-                       .se(se), .si(), .so());
-   dff_s #(32) dff_yreg_thr1(.din(next_yreg_thr1[31:0]), .clk(clk), .q(yreg_thr1[31:0]),
-                       .se(se), .si(), .so());
-   dff_s #(32) dff_yreg_thr2(.din(next_yreg_thr2[31:0]), .clk(clk), .q(yreg_thr2[31:0]),
-                       .se(se), .si(), .so());
-   dff_s #(32) dff_yreg_thr3(.din(next_yreg_thr3[31:0]), .clk(clk), .q(yreg_thr3[31:0]),
-                       .se(se), .si(), .so());
-   
-   
+   // Select the requested thread's Y register.
+   reg [31:0] yreg_out_r;
+   integer j;
+   always @* begin
+      yreg_out_r = 32'b0;
+      for (j = 0; j < THREADS; j = j + 1)
+         if (ecl_div_thr_e[j]) yreg_out_r = yreg_thr[j];
+   end
+   assign yreg_mdq_y_e[31:0] = yreg_out_r[31:0];
+
+   // LSB of all four threads; unused threads read 0.
+   genvar k;
+   generate
+      for (k = 0; k < 4; k = k + 1) begin : gen_lsb
+         if (k < THREADS)
+            assign div_ecl_yreg_0[k] = yreg_thr[k][0];
+         else
+            assign div_ecl_yreg_0[k] = 1'b0;
+      end
+   endgenerate
+   assign div_ecl_yreg_0_l[3:0] = ~div_ecl_yreg_0[3:0];
+
 endmodule // sparc_exu_div_yreg
