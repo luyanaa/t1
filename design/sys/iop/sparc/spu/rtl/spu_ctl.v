@@ -820,5 +820,9 @@ spu_maaeqb spu_maaeqb (//out
 		       .spu_maaddr_aequb(spu_maaddr_aequb));
 
 
+`ifdef FPGA_SYN
+   // Scan is not used in the FPGA flow; terminate the dangling scan-out.
+   assign so = 1'b0;
+`endif
 
 endmodule

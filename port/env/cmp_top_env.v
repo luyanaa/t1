@@ -643,7 +643,11 @@ module cmp_top;
     force cmp_top.iop.scbuf1.cluster_cken  = 1'b1;
     force cmp_top.iop.scbuf2.cluster_cken  = 1'b1;
     force cmp_top.iop.scbuf3.cluster_cken  = 1'b1;
+`ifdef RTL_FPU
+`ifndef SPARC_NO_FPU
     force cmp_top.iop.fpu.cluster_cken     = 1'b1;
+`endif
+`endif
     force cmp_top.iop.ccx.clk_ccx_cken     = 1'b1;  // ccx uses clk_ccx_cken
     $display("[cmp_top_env] CTU clkctrl un-poison + cluster_cken forces at %0t", $time);
   end
@@ -690,7 +694,9 @@ module cmp_top;
     //     comment (sparc_ifu_fcl.v:2897) says it must power up 4'b0001.
     //     If X, thr_d/e/m/w are X -> rstint_m/intr_vld_w X -> thrfsm
     //     (sparc_ifu_thrfsm.v:77-95) can never leave IDLE.  HOLD.
+`ifndef SPARC_1THREAD
     force cmp_top.iop.sparc0.ifu.fcl.thrf_reg.q = 4'b0001;
+`endif
 
     // (2) ISSUE B: LSU IOB-forward-packet flop (lsu_qctl2.v:700 fwdpkt_ff,
     //     dffre_s) has rst=fwdpkt_reset(:694) and en=cpx_fwd_pkt_en_cx(:680)
@@ -1302,9 +1308,9 @@ module cmp_top;
                $time,
                iop.cmp_grst_out_l, iop.jbus_grst_l, iop.dram_grst_l,
                iop.sparc0.ifu.swl.thrfsm0.thr_state,
-               iop.sparc0.ifu.swl.thrfsm1.thr_state,
-               iop.sparc0.ifu.swl.thrfsm2.thr_state,
-               iop.sparc0.ifu.swl.thrfsm3.thr_state,
+               iop.sparc0.ifu.swl.thr1_state,
+               iop.sparc0.ifu.swl.thr2_state,
+               iop.sparc0.ifu.swl.thr3_state,
                iop.sparc0.tlu.tlu_ifu_trappc_vld_w1);
     end
   end

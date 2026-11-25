@@ -57,7 +57,11 @@ def main():
             extra = os.path.join(root, extra)
         files.append(os.path.abspath(extra))
 
-    defines = args.define if args.define is not None else list(DEFAULT_DEFINES)
+    defines = list(DEFAULT_DEFINES)
+    if args.define:
+        for extra in args.define:
+            if extra not in defines:
+                defines.append(extra)
     incdirs = args.incdir if args.incdir is not None else list(DEFAULT_INCDIRS)
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)

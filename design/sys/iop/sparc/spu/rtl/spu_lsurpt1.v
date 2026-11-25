@@ -272,4 +272,9 @@ dff_s  #(2) spu_lsu_stxa_ack_tid_ff (
         .q(spu_lsu_stxa_ack_tid[1:0]),
         .clk (rclk), .se(se), .si(), .so());
 
+`ifdef FPGA_SYN
+   // Scan is not used in the FPGA flow; terminate the dangling scan-out.
+   assign so = 1'b0;
+`endif
+
 endmodule

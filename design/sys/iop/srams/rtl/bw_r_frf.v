@@ -57,8 +57,18 @@ module bw_r_frf (/*AUTOARG*/
    //
 
 `ifdef FPGA_SYN_FRF
+`ifdef FPGA_SYN_1THREAD
+   // SMT1: only T0's 32 even/odd FRF entries are live.
+   reg [38:0]     regfile_high [31:0];
+   reg [38:0]     regfile_low [31:0];
+ `define FRF_RD_HI regfile_index_high[5:1]
+ `define FRF_RD_LO regfile_index_low[5:1]
+`else
    reg [38:0]     regfile_high [127:0];
    reg [38:0]     regfile_low [127:0];
+ `define FRF_RD_HI regfile_index_high[7:1]
+ `define FRF_RD_LO regfile_index_low[7:1]
+`endif
 `else   
    reg [38:0]     regfile [255:0];
 `endif
@@ -104,7 +114,7 @@ module bw_r_frf (/*AUTOARG*/
 `ifdef FPGA_SYN_FRF
    assign read_data[77:0] = (~ren_d1)?             78'b0: 
                             (wen_d1[1]|wen_d1[0])? {78{1'bx}}:
-                               {regfile_high[regfile_index_high[7:1]],regfile_low[regfile_index_low[7:1]]};
+                               {regfile_high[`FRF_RD_HI],regfile_low[`FRF_RD_LO]};
 `else
    assign read_data[77:0] = (~ren_d1)?             78'b0: 
                             (wen_d1[1]|wen_d1[0])? {78{1'bx}}:
@@ -124,10 +134,10 @@ module bw_r_frf (/*AUTOARG*/
       // write is gated by rst_tri_en
 `ifdef FPGA_SYN_FRF
       if (wen_d1[0] & ~ren_d1 & ~rst_tri_en_negedge) begin
-   	regfile_low[regfile_index_low[7:1]] <= write_data_d1[38:0];
+	regfile_low[`FRF_RD_LO] <= write_data_d1[38:0];
       end
       if (wen_d1[1] & ~ren_d1 & ~rst_tri_en_negedge) begin
-         regfile_high[regfile_index_high[7:1]] <= write_data_d1[77:39];
+         regfile_high[`FRF_RD_HI] <= write_data_d1[77:39];
       end
 `else
       if (wen_d1[0] & ~ren_d1 & ~rst_tri_en_negedge) begin
@@ -143,5 +153,10 @@ module bw_r_frf (/*AUTOARG*/
       rst_tri_en_negedge <= rst_tri_en;
    end
    
+`ifdef FPGA_SYN_FRF
+ `undef FRF_RD_HI
+ `undef FRF_RD_LO
+`endif
+
 endmodule // sparc_ffu_frf
 

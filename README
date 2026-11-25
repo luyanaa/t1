@@ -62,6 +62,30 @@ make -C port fpga            # full-core FPGA bitstream (long)
 make -C port asic-smoke      # LibreLane sky130 leaf-block RTL-to-GDS
 ```
 
+### SMT and FPU configuration
+
+The core build is parameterized at compile time with `SMT` and `FPU`:
+
+- `SMT=4` (default): four threads per core.
+- `SMT=1`: single-thread build; enables the existing `FPGA_SYN_1THREAD`
+  path. `SMT=2` is reserved for a future two-thread path.
+- `FPU=1` (default): shared FPU enabled.
+- `FPU=0`: defines `SPARC_NO_FPU`; the core keeps FP instructions
+  disabled so they take `FP_DISABLED`, and the shared `fpu` block is not
+  instantiated in the full chip.
+
+Examples:
+
+```sh
+make -C port smoke SMT=1 FPU=0
+make -C port fpga-flist SMT=1 FPU=0
+make -C port fpga SMT=1 FPU=0
+```
+
+The defines are centralized in `design/sys/iop/include/sparc_config.h`.
+`SPARC_1THREAD` maps to `FPGA_SYN_1THREAD` for compatibility with the
+original Sun guards.
+
 The FPGA targets look for `yosys`, `nextpnr-himbaechel`, and `gowin_pack`
 under `/shared/oss-cad-suite/bin`; override `OSS_CAD_SUITE` to use another
 installation. Version 0.70 or newer of Yosys is required for the Gowin

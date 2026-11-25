@@ -4189,6 +4189,7 @@ module OpenSPARCT1 (/*AUTOARG*/
     ); */
 //
 `ifdef RTL_FPU
+`ifndef SPARC_FPU_DISABLE
    fpu fpu
      (/*AUTOINST*/
       // Outputs
@@ -4209,6 +4210,13 @@ module OpenSPARCT1 (/*AUTOARG*/
       .ctu_tst_macrotest		(ctu_tst_macrotest),
       .ctu_tst_short_chain		(ctu_tst_short_chain),
       .si				(rdram2_fpu_so));	 // Templated
+`else
+   assign fp_cpx_req_cq = 8'b0;
+   assign fp_cpx_data_ca = 145'b0;
+`endif
+`else
+   assign fp_cpx_req_cq = 8'b0;
+   assign fp_cpx_data_ca = 145'b0;
 `endif
 //
 

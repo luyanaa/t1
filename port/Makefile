@@ -1,6 +1,27 @@
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)
 BUILD := $(ROOT)/port/build
 TOP ?= sparc
+SMT ?= 4
+FPU ?= 1
+
+ifneq ($(filter-out 1 2 4,$(SMT)),)
+$(error SMT must be 1, 2, or 4)
+endif
+ifeq ($(SMT),2)
+$(error SMT=2 is reserved and not implemented yet; use SMT=1 or SMT=4)
+endif
+ifneq ($(filter-out 0 1,$(FPU)),)
+$(error FPU must be 0 or 1)
+endif
+
+# Compile-time configuration for the core.  SMT=1 selects the existing
+# FPGA_SYN_1THREAD path; FPU=0 disables the shared FPU (FP instructions
+# trap FP_DISABLED).  TID stays 2 bits for PCX/CPX compatibility.
+SMT_DEFS := $(if $(filter 1,$(SMT)),-DSPARC_1THREAD,$(if $(filter 2,$(SMT)),-DSPARC_2THREAD,))
+FPU_DEFS := $(if $(filter 0,$(FPU)),-DSPARC_NO_FPU,)
+CONFIG_DEFS := $(SMT_DEFS) $(FPU_DEFS)
+CONFIG_NAMES := $(patsubst -D%,%,$(CONFIG_DEFS))
+
 PYTHON ?= python3
 IVERILOG ?= iverilog
 VVP ?= vvp
@@ -55,6 +76,7 @@ filelist:
 	$(PYTHON) $(ROOT)/port/scripts/gen_filelist.py \
 		--mode rtl \
 		--top $(TOP) \
+		$(foreach d,$(CONFIG_NAMES),--define $(d)) \
 		-o $(BUILD)/core1_rtl.f \
 		--config-v $(BUILD)/config.v \
 		--yosys $(BUILD)/core1_rtl.ys
@@ -189,6 +211,7 @@ fpga-flist:
 		--top t1_fpga_top \
 		--synth gowin \
 		--json $(FPGA_BUILD)/t1_fpga.json \
+		$(foreach d,$(CONFIG_NAMES),--define $(d)) \
 		--extra design/sys/iop/rtl/iop_fpga.v \
 		--extra port/fpga/t1_fpga_top.v \
 		-o $(FPGA_BUILD)/t1_fpga.ys
@@ -261,6 +284,7 @@ asic-config:
 		--top iop_fpga \
 		--clock-port gclk \
 		--clock-period 10 \
+		$(foreach d,$(CONFIG_NAMES),--define $(d)) \
 		--extra design/sys/iop/rtl/iop_fpga.v \
 		-o $(BUILD)/asic/config_full.yaml
 

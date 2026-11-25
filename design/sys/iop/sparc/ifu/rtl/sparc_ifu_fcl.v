@@ -2896,10 +2896,16 @@ module sparc_ifu_fcl(/*AUTOARG*/
                                 .b (tmne_32));
    
 
+`ifdef FPGA_SYN_1THREAD
+   // SMT1: the only live thread is T0; the legacy flop has no reset and
+   // would otherwise power up X (the full-chip bench forces it today).
+   assign thr_f_flop = 4'b0001;
+`else
    dff_s #(4) thrf_reg(.din   (thr_bf),     // thr_f may be 4'b0000 but it has 
 		                 .clk   (clk),        // to reset to 4'b0001
 		                 .q     (thr_f_flop),
 		                 .se    (se),  .si(), .so());
+`endif
 
    bw_u1_buf_10x UZsize_tfcrit0(.a (thr_f_flop[0]), .z(thr_f_crit[0]));
    bw_u1_buf_10x UZsize_tfcrit1(.a (thr_f_flop[1]), .z(thr_f_crit[1]));

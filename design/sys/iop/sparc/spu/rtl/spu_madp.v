@@ -857,5 +857,9 @@ dff_s  #(64) lnlower_data_ff (
 
 // ############################################################
 
+`ifdef FPGA_SYN
+   // Scan is not used in the FPGA flow; terminate the dangling scan-out.
+   assign so = 1'b0;
+`endif
 
 endmodule

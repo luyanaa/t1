@@ -1107,6 +1107,10 @@ wire [3:0] 		lsu_tlu_stb_full_w2_t;  // To accommodate 1T design
    assign 		lsu_pid_state1[2:0] = 2'b00;
    assign 		lsu_pid_state2[2:0] = 2'b00;
    assign 		lsu_pid_state3[2:0] = 2'b00;
+   // SMT1: T1-T3 store buffers do not exist; keep the FFU full flags low.
+   assign 		lsu_stbcnt1[3:0] = 4'b0000;
+   assign 		lsu_stbcnt2[3:0] = 4'b0000;
+   assign 		lsu_stbcnt3[3:0] = 4'b0000;
    
 `else
    assign 		lsu_tlu_stb_full_w2[3:0] = lsu_tlu_stb_full_w2_t[3:0];

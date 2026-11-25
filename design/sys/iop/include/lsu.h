@@ -20,6 +20,7 @@
 * 
 * ========== Copyright Header End ============================================
 */
+`include "sparc_config.h"
 `define STB_PCX_WIDTH   115
 `define STB_PCX_VLD     114
 `define STB_PCX_RQ_HI   113

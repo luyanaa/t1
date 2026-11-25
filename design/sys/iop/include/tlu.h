@@ -20,6 +20,7 @@
 * 
 * ========== Copyright Header End ============================================
 */
+`include "sparc_config.h"
 // ifu trap types
 `define INST_ACC_EXC    9'h008
 `define INST_ACC_MMU_MS 9'h009

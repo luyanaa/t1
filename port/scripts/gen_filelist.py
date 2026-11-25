@@ -41,6 +41,8 @@ def main():
                     help="optional generated Yosys script")
     ap.add_argument("--top", default="sparc",
                     help="top module for the Yosys hierarchy check")
+    ap.add_argument("--define", action="append", default=[],
+                    help="extra Verilog define (repeatable)")
     args = ap.parse_args()
 
     if args.dv_root:
@@ -68,6 +70,11 @@ def main():
             elif line.startswith("-env_base="):
                 incdir = expand_vars(line[len("-env_base="):].strip(), dv_root)
                 incdirs.append(incdir)
+
+    for extra in args.define:
+        name = extra.lstrip("+").replace("define+", "", 1)
+        if name and name not in defines:
+            defines.append(name)
 
     allowed = [os.path.join(dv_root, "design"), os.path.join(dv_root, "lib")]
     selected = []

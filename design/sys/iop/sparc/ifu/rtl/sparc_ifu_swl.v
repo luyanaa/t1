@@ -992,6 +992,11 @@ module sparc_ifu_swl(/*AUTOARG*/
 			     .si	(si),
 			     .reset	(dtu_reset));
 
+`ifdef FPGA_SYN_1THREAD
+   assign thr1_state = 5'b0;
+   assign thr2_state = 5'b0;
+   assign thr3_state = 5'b0;
+`else
    sparc_ifu_thrfsm  thrfsm1(
 			     // Outputs
 `ifdef FPGA_SYN
@@ -1087,6 +1092,8 @@ module sparc_ifu_swl(/*AUTOARG*/
 			     .se	(se),
 			     .si	(si),
 			     .reset	(dtu_reset));
+
+`endif
 
 //----------------------------------------------------------------------
 // Schedule Next Thread
@@ -1783,7 +1790,12 @@ module sparc_ifu_swl(/*AUTOARG*/
 
    assign fprs_en_s = {fprs3[2],fprs2[2],fprs1[2],fprs0[2]};
    assign fpen_vec_s = (tlu_ifu_pstate_pef & fprs_en_s & thr_f);
+`ifdef SPARC_FPU_DISABLE
+   // No shared FPU: keep the FP enable off so FP ops take FP_DISABLED.
+   assign fpen_s = 1'b0;
+`else
    assign fpen_s = (|fpen_vec_s[3:0]);
+`endif
    dff_s #(1) fpend_ff(.din (fpen_s),
 		                 .q   (swl_dec_fp_enable_d),
 		                 .clk (clk), .se(se), .si(), .so());

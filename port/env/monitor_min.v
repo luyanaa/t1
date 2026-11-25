@@ -200,50 +200,50 @@ module monitor(clk, cmp_gclk, rst_l);
    // ---- per-thread IFU thread-FSM state (activity + halt) ----------------
    // thread index j = core*4 + tid
    wire [4:0] thr_state_00 = cmp_top.iop.sparc0.ifu.swl.thrfsm0.thr_state;
-   wire [4:0] thr_state_01 = cmp_top.iop.sparc0.ifu.swl.thrfsm1.thr_state;
-   wire [4:0] thr_state_02 = cmp_top.iop.sparc0.ifu.swl.thrfsm2.thr_state;
-   wire [4:0] thr_state_03 = cmp_top.iop.sparc0.ifu.swl.thrfsm3.thr_state;
+   wire [4:0] thr_state_01 = cmp_top.iop.sparc0.ifu.swl.thr1_state;
+   wire [4:0] thr_state_02 = cmp_top.iop.sparc0.ifu.swl.thr2_state;
+   wire [4:0] thr_state_03 = cmp_top.iop.sparc0.ifu.swl.thr3_state;
 `ifdef RTL_SPARC1
    wire [4:0] thr_state_10 = cmp_top.iop.sparc1.ifu.swl.thrfsm0.thr_state;
-   wire [4:0] thr_state_11 = cmp_top.iop.sparc1.ifu.swl.thrfsm1.thr_state;
-   wire [4:0] thr_state_12 = cmp_top.iop.sparc1.ifu.swl.thrfsm2.thr_state;
-   wire [4:0] thr_state_13 = cmp_top.iop.sparc1.ifu.swl.thrfsm3.thr_state;
+   wire [4:0] thr_state_11 = cmp_top.iop.sparc1.ifu.swl.thr1_state;
+   wire [4:0] thr_state_12 = cmp_top.iop.sparc1.ifu.swl.thr2_state;
+   wire [4:0] thr_state_13 = cmp_top.iop.sparc1.ifu.swl.thr3_state;
 `endif
 `ifdef RTL_SPARC2
    wire [4:0] thr_state_20 = cmp_top.iop.sparc2.ifu.swl.thrfsm0.thr_state;
-   wire [4:0] thr_state_21 = cmp_top.iop.sparc2.ifu.swl.thrfsm1.thr_state;
-   wire [4:0] thr_state_22 = cmp_top.iop.sparc2.ifu.swl.thrfsm2.thr_state;
-   wire [4:0] thr_state_23 = cmp_top.iop.sparc2.ifu.swl.thrfsm3.thr_state;
+   wire [4:0] thr_state_21 = cmp_top.iop.sparc2.ifu.swl.thr1_state;
+   wire [4:0] thr_state_22 = cmp_top.iop.sparc2.ifu.swl.thr2_state;
+   wire [4:0] thr_state_23 = cmp_top.iop.sparc2.ifu.swl.thr3_state;
 `endif
 `ifdef RTL_SPARC3
    wire [4:0] thr_state_30 = cmp_top.iop.sparc3.ifu.swl.thrfsm0.thr_state;
-   wire [4:0] thr_state_31 = cmp_top.iop.sparc3.ifu.swl.thrfsm1.thr_state;
-   wire [4:0] thr_state_32 = cmp_top.iop.sparc3.ifu.swl.thrfsm2.thr_state;
-   wire [4:0] thr_state_33 = cmp_top.iop.sparc3.ifu.swl.thrfsm3.thr_state;
+   wire [4:0] thr_state_31 = cmp_top.iop.sparc3.ifu.swl.thr1_state;
+   wire [4:0] thr_state_32 = cmp_top.iop.sparc3.ifu.swl.thr2_state;
+   wire [4:0] thr_state_33 = cmp_top.iop.sparc3.ifu.swl.thr3_state;
 `endif
 `ifdef RTL_SPARC4
    wire [4:0] thr_state_40 = cmp_top.iop.sparc4.ifu.swl.thrfsm0.thr_state;
-   wire [4:0] thr_state_41 = cmp_top.iop.sparc4.ifu.swl.thrfsm1.thr_state;
-   wire [4:0] thr_state_42 = cmp_top.iop.sparc4.ifu.swl.thrfsm2.thr_state;
-   wire [4:0] thr_state_43 = cmp_top.iop.sparc4.ifu.swl.thrfsm3.thr_state;
+   wire [4:0] thr_state_41 = cmp_top.iop.sparc4.ifu.swl.thr1_state;
+   wire [4:0] thr_state_42 = cmp_top.iop.sparc4.ifu.swl.thr2_state;
+   wire [4:0] thr_state_43 = cmp_top.iop.sparc4.ifu.swl.thr3_state;
 `endif
 `ifdef RTL_SPARC5
    wire [4:0] thr_state_50 = cmp_top.iop.sparc5.ifu.swl.thrfsm0.thr_state;
-   wire [4:0] thr_state_51 = cmp_top.iop.sparc5.ifu.swl.thrfsm1.thr_state;
-   wire [4:0] thr_state_52 = cmp_top.iop.sparc5.ifu.swl.thrfsm2.thr_state;
-   wire [4:0] thr_state_53 = cmp_top.iop.sparc5.ifu.swl.thrfsm3.thr_state;
+   wire [4:0] thr_state_51 = cmp_top.iop.sparc5.ifu.swl.thr1_state;
+   wire [4:0] thr_state_52 = cmp_top.iop.sparc5.ifu.swl.thr2_state;
+   wire [4:0] thr_state_53 = cmp_top.iop.sparc5.ifu.swl.thr3_state;
 `endif
 `ifdef RTL_SPARC6
    wire [4:0] thr_state_60 = cmp_top.iop.sparc6.ifu.swl.thrfsm0.thr_state;
-   wire [4:0] thr_state_61 = cmp_top.iop.sparc6.ifu.swl.thrfsm1.thr_state;
-   wire [4:0] thr_state_62 = cmp_top.iop.sparc6.ifu.swl.thrfsm2.thr_state;
-   wire [4:0] thr_state_63 = cmp_top.iop.sparc6.ifu.swl.thrfsm3.thr_state;
+   wire [4:0] thr_state_61 = cmp_top.iop.sparc6.ifu.swl.thr1_state;
+   wire [4:0] thr_state_62 = cmp_top.iop.sparc6.ifu.swl.thr2_state;
+   wire [4:0] thr_state_63 = cmp_top.iop.sparc6.ifu.swl.thr3_state;
 `endif
 `ifdef RTL_SPARC7
    wire [4:0] thr_state_70 = cmp_top.iop.sparc7.ifu.swl.thrfsm0.thr_state;
-   wire [4:0] thr_state_71 = cmp_top.iop.sparc7.ifu.swl.thrfsm1.thr_state;
-   wire [4:0] thr_state_72 = cmp_top.iop.sparc7.ifu.swl.thrfsm2.thr_state;
-   wire [4:0] thr_state_73 = cmp_top.iop.sparc7.ifu.swl.thrfsm3.thr_state;
+   wire [4:0] thr_state_71 = cmp_top.iop.sparc7.ifu.swl.thr1_state;
+   wire [4:0] thr_state_72 = cmp_top.iop.sparc7.ifu.swl.thr2_state;
+   wire [4:0] thr_state_73 = cmp_top.iop.sparc7.ifu.swl.thr3_state;
 `endif
 
    // ---- trap list parsing (replaces $parse PLI) ---------------------------
