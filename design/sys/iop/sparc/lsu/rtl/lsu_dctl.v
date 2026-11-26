@@ -1253,8 +1253,21 @@ wire [1:0]   lsu_byp_misc_sz_m ;     // size for ldxa/raw etc
 wire      lsu_bist_wvld_e ;           // bist writes to cache
 wire  		lsu_bist_rvld_e ;	          // bist reads dcache
 
+`ifdef RTL_FF_POR_INIT
+// MBIST is never exercised by the FPGA port or the benches, and the on-chip
+// BIST controller in the stripped FPGA top is not reset, so its write strobe
+// comes up asserted and steals the dcache fill mux (lsu_dcfill_data_mx_sel_e)
+// away from the real line-fill data.  Tie it off the way a chip with BIST
+// disabled behaves.
+wire mbist_dcache_write_s = 1'b0;
+wire mbist_dcache_read_s  = 1'b0;
+`else
+wire mbist_dcache_write_s = mbist_dcache_write;
+wire mbist_dcache_read_s  = mbist_dcache_read;
+`endif
+
 dff_s #(2) mbist_stge (
-   .din ({mbist_dcache_write, mbist_dcache_read}),
+   .din ({mbist_dcache_write_s, mbist_dcache_read_s}),
    .q   ({lsu_bist_wvld_e,    lsu_bist_rvld_e  }),
    .clk (clk),
    .se  (se),       .si (),          .so ()

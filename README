@@ -561,9 +561,19 @@ The original documentation is under `doc/`:
 - Stage 3 (complete): FPGA wrapper with nextpnr/Gowin synthesis and
   bitstream flow, a fast toolchain bitstream, an ASIC leaf-block flow
   through LibreLane/sky130, and a full-core ASIC synthesis configuration.
-- Stage 4: close timing on the full FPGA core or a reduced/congestion-aware
-  variant, replace inferred memories with ASIC SRAM macros, partition the
-  ASIC design, and add external memory/interrupt/console support.
+- Stage 4 (in progress):
+  - `make -C port regress` now also runs a multi-threaded diag
+    (`diag-smoke`), so the per-thread reset/IFILL/trap paths are covered
+    alongside the smoke tests.
+  - The benchmark's thread-state `force` statements are replaced by real
+    power-up values in the RTL (`RTL_FF_POR_INIT` / `POR` on the flop
+    cells); see `port/DIAG_STATUS.md`.
+  - FPGA area baseline for both configurations is recorded in
+    `port/AREA.md` (SMT=1/FPU=0 is 83134 cells vs 148720 for the default
+    4-thread FPU build, i.e. 35% vs 70% LUT utilisation on GW5AST-138).
+  - Remaining: retry full-core PnR on the reduced build, replace inferred
+    memories with ASIC SRAM macros, partition the ASIC design, and add
+    external memory/interrupt/console support.
 
 ## License
 

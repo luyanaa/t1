@@ -34,6 +34,11 @@ module dff_s (din, clk, q, se, si, so);
 // synopsys template
 
 parameter SIZE = 1;
+// Power-up (POR) value.  Real flops come out of configuration with a
+// defined state; simulators start them at x unless told otherwise.  The
+// port flow defines RTL_FF_POR_INIT so the simulation models the FPGA
+// power-up state instead of relying on testbench `force` statements.
+parameter [SIZE-1:0] POR = {SIZE{1'b0}};
 
 input	[SIZE-1:0]	din ;	// data in
 input			clk ;	// clk or scan clk
@@ -45,6 +50,10 @@ input	[SIZE-1:0]	si ;	// scan-input
 output	[SIZE-1:0]	so ;	// scan-output
 
 reg 	[SIZE-1:0]	q ;
+
+`ifdef RTL_FF_POR_INIT
+initial q = POR;
+`endif
 
 `ifdef NO_SCAN
 always @ (posedge clk)
@@ -61,11 +70,50 @@ assign so[SIZE-1:0] = q[SIZE-1:0] ;
 
 endmodule // dff_s
 
+// Simulation-only variant used to give a handful of L2 control flops a
+// defined power-up value in the full-chip bring-up bench.  Identical to
+// dff_s except that the POR initialisation is gated by RTL_ANY_POR_INIT
+// instead of RTL_FF_POR_INIT, so it can be enabled for the cmp_top_env
+// build without touching every other flop in the chip (doing that keeps
+// the CTU reset chain from ever releasing cmp_grst_out_l).
+module dff_s_por0 (din, clk, q, se, si, so);
+parameter SIZE = 1;
+parameter [SIZE-1:0] POR = {SIZE{1'b0}};
+
+input	[SIZE-1:0]	din ;
+input			clk ;
+output	[SIZE-1:0]	q ;
+input			se ;
+input	[SIZE-1:0]	si ;
+output	[SIZE-1:0]	so ;
+
+reg 	[SIZE-1:0]	q ;
+
+`ifdef RTL_ANY_POR_INIT
+initial q = POR;
+`endif
+
+`ifdef NO_SCAN
+always @ (posedge clk)
+  q[SIZE-1:0]  <= din[SIZE-1:0] ;
+`else
+always @ (posedge clk)
+	q[SIZE-1:0]  <= (se) ? si[SIZE-1:0]  : din[SIZE-1:0] ;
+assign so[SIZE-1:0] = q[SIZE-1:0] ;
+`endif
+
+endmodule // dff_s_por0
+
 // POSITVE-EDGE TRIGGERED FLOP with SCAN for Shadow-scan
 module dff_sscan (din, clk, q, se, si, so);
 // synopsys template
 
 parameter SIZE = 1;
+// Power-up (POR) value.  Real flops come out of configuration with a
+// defined state; simulators start them at x unless told otherwise.  The
+// port flow defines RTL_FF_POR_INIT so the simulation models the FPGA
+// power-up state instead of relying on testbench `force` statements.
+parameter [SIZE-1:0] POR = {SIZE{1'b0}};
 
 input	[SIZE-1:0]	din ;	// data in
 input			clk ;	// clk or scan clk
@@ -77,6 +125,10 @@ input	[SIZE-1:0]	si ;	// scan-input
 output	[SIZE-1:0]	so ;	// scan-output
 
 reg 	[SIZE-1:0]	q ;
+
+`ifdef RTL_FF_POR_INIT
+initial q = POR;
+`endif
 
 `ifdef CONNECT_SHADOW_SCAN
 
@@ -100,6 +152,11 @@ module dff_ns (din, clk, q);
 // synopsys template
 
 parameter SIZE = 1;
+// Power-up (POR) value.  Real flops come out of configuration with a
+// defined state; simulators start them at x unless told otherwise.  The
+// port flow defines RTL_FF_POR_INIT so the simulation models the FPGA
+// power-up state instead of relying on testbench `force` statements.
+parameter [SIZE-1:0] POR = {SIZE{1'b0}};
 
 input	[SIZE-1:0]	din ;	// data in
 input			clk ;	// clk
@@ -107,6 +164,10 @@ input			clk ;	// clk
 output	[SIZE-1:0]	q ;	// output
 
 reg 	[SIZE-1:0]	q ;
+
+`ifdef RTL_FF_POR_INIT
+initial q = POR;
+`endif
 
 always @ (posedge clk)
 
@@ -119,6 +180,11 @@ module dffr_s (din, clk, rst, q, se, si, so);
 // synopsys template
 
 parameter SIZE = 1;
+// Power-up (POR) value.  Real flops come out of configuration with a
+// defined state; simulators start them at x unless told otherwise.  The
+// port flow defines RTL_FF_POR_INIT so the simulation models the FPGA
+// power-up state instead of relying on testbench `force` statements.
+parameter [SIZE-1:0] POR = {SIZE{1'b0}};
 
 input	[SIZE-1:0]	din ;	// data in
 input			clk ;	// clk or scan clk
@@ -131,6 +197,10 @@ input	[SIZE-1:0]	si ;	// scan-input
 output	[SIZE-1:0]	so ;	// scan-output
 
 reg 	[SIZE-1:0]	q ;
+
+`ifdef RTL_FF_POR_INIT
+initial q = POR;
+`endif
 
 `ifdef NO_SCAN
 always @ (posedge clk)
@@ -152,6 +222,11 @@ module dffrl_s (din, clk, rst_l, q, se, si, so);
 // synopsys template
 
 parameter SIZE = 1;
+// Power-up (POR) value.  Real flops come out of configuration with a
+// defined state; simulators start them at x unless told otherwise.  The
+// port flow defines RTL_FF_POR_INIT so the simulation models the FPGA
+// power-up state instead of relying on testbench `force` statements.
+parameter [SIZE-1:0] POR = {SIZE{1'b0}};
 
 input	[SIZE-1:0]	din ;	// data in
 input			clk ;	// clk or scan clk
@@ -164,6 +239,10 @@ input	[SIZE-1:0]	si ;	// scan-input
 output	[SIZE-1:0]	so ;	// scan-output
 
 reg 	[SIZE-1:0]	q ;
+
+`ifdef RTL_FF_POR_INIT
+initial q = POR;
+`endif
 
 `ifdef NO_SCAN
 always @ (posedge clk)
@@ -185,6 +264,11 @@ module dffr_ns (din, clk, rst, q);
 // synopsys template
 
 parameter SIZE = 1;
+// Power-up (POR) value.  Real flops come out of configuration with a
+// defined state; simulators start them at x unless told otherwise.  The
+// port flow defines RTL_FF_POR_INIT so the simulation models the FPGA
+// power-up state instead of relying on testbench `force` statements.
+parameter [SIZE-1:0] POR = {SIZE{1'b0}};
 
 input	[SIZE-1:0]	din ;	// data in
 input			clk ;	// clk
@@ -193,6 +277,10 @@ input			rst ;	// reset
 output	[SIZE-1:0]	q ;	// output
 
 reg 	[SIZE-1:0]	q ;
+
+`ifdef RTL_FF_POR_INIT
+initial q = POR;
+`endif
 
 // synopsys sync_set_reset "rst"
 always @ (posedge clk)
@@ -205,6 +293,11 @@ module dffrl_ns (din, clk, rst_l, q);
 // synopsys template
 
 parameter SIZE = 1;
+// Power-up (POR) value.  Real flops come out of configuration with a
+// defined state; simulators start them at x unless told otherwise.  The
+// port flow defines RTL_FF_POR_INIT so the simulation models the FPGA
+// power-up state instead of relying on testbench `force` statements.
+parameter [SIZE-1:0] POR = {SIZE{1'b0}};
 
 input	[SIZE-1:0]	din ;	// data in
 input			clk ;	// clk
@@ -213,6 +306,10 @@ input			rst_l ;	// reset
 output	[SIZE-1:0]	q ;	// output
 
 reg 	[SIZE-1:0]	q ;
+
+`ifdef RTL_FF_POR_INIT
+initial q = POR;
+`endif
 
 // synopsys sync_set_reset "rst_l"
 always @ (posedge clk)
@@ -225,6 +322,11 @@ module dffe_s (din, en, clk, q, se, si, so);
 // synopsys template
 
 parameter SIZE = 1;
+// Power-up (POR) value.  Real flops come out of configuration with a
+// defined state; simulators start them at x unless told otherwise.  The
+// port flow defines RTL_FF_POR_INIT so the simulation models the FPGA
+// power-up state instead of relying on testbench `force` statements.
+parameter [SIZE-1:0] POR = {SIZE{1'b0}};
 
 input	[SIZE-1:0]	din ;	// data in
 input			en ;	// functional enable
@@ -237,6 +339,10 @@ input	[SIZE-1:0]	si ;	// scan-input
 output	[SIZE-1:0]	so ;	// scan-output
 
 reg 	[SIZE-1:0]	q ;
+
+`ifdef RTL_FF_POR_INIT
+initial q = POR;
+`endif
 
 // Enable Interpretation. Ultimate interpretation depends on design
 // 
@@ -266,6 +372,11 @@ module dffe_ns (din, en, clk, q);
 // synopsys template
 
 parameter SIZE = 1;
+// Power-up (POR) value.  Real flops come out of configuration with a
+// defined state; simulators start them at x unless told otherwise.  The
+// port flow defines RTL_FF_POR_INIT so the simulation models the FPGA
+// power-up state instead of relying on testbench `force` statements.
+parameter [SIZE-1:0] POR = {SIZE{1'b0}};
 
 input	[SIZE-1:0]	din ;	// data in
 input			en ;	// functional enable
@@ -274,6 +385,10 @@ input			clk ;	// clk
 output	[SIZE-1:0]	q ;	// output
 
 reg 	[SIZE-1:0]	q ;
+
+`ifdef RTL_FF_POR_INIT
+initial q = POR;
+`endif
 
 always @ (posedge clk)
   q[SIZE-1:0] <= en ? din[SIZE-1:0] : q[SIZE-1:0];
@@ -285,6 +400,11 @@ module dffre_s (din, rst, en, clk, q, se, si, so);
 // synopsys template
 
 parameter SIZE = 1;
+// Power-up (POR) value.  Real flops come out of configuration with a
+// defined state; simulators start them at x unless told otherwise.  The
+// port flow defines RTL_FF_POR_INIT so the simulation models the FPGA
+// power-up state instead of relying on testbench `force` statements.
+parameter [SIZE-1:0] POR = {SIZE{1'b0}};
 
 input	[SIZE-1:0]	din ;	// data in
 input			en ;	// functional enable
@@ -298,6 +418,10 @@ input	[SIZE-1:0]	si ;	// scan-input
 output	[SIZE-1:0]	so ;	// scan-output
 
 reg 	[SIZE-1:0]	q ;
+
+`ifdef RTL_FF_POR_INIT
+initial q = POR;
+`endif
 
 // Enable Interpretation. Ultimate interpretation depends on design
 // 
@@ -330,6 +454,11 @@ module dffrle_s (din, rst_l, en, clk, q, se, si, so);
 // synopsys template
 
 parameter SIZE = 1;
+// Power-up (POR) value.  Real flops come out of configuration with a
+// defined state; simulators start them at x unless told otherwise.  The
+// port flow defines RTL_FF_POR_INIT so the simulation models the FPGA
+// power-up state instead of relying on testbench `force` statements.
+parameter [SIZE-1:0] POR = {SIZE{1'b0}};
 
 input	[SIZE-1:0]	din ;	// data in
 input			en ;	// functional enable
@@ -343,6 +472,10 @@ input	[SIZE-1:0]	si ;	// scan-input
 output	[SIZE-1:0]	so ;	// scan-output
 
 reg 	[SIZE-1:0]	q ;
+
+`ifdef RTL_FF_POR_INIT
+initial q = POR;
+`endif
 
 // Enable Interpretation. Ultimate interpretation depends on design
 // 
@@ -374,6 +507,11 @@ module dffre_ns (din, rst, en, clk, q);
 // synopsys template
 
 parameter SIZE = 1;
+// Power-up (POR) value.  Real flops come out of configuration with a
+// defined state; simulators start them at x unless told otherwise.  The
+// port flow defines RTL_FF_POR_INIT so the simulation models the FPGA
+// power-up state instead of relying on testbench `force` statements.
+parameter [SIZE-1:0] POR = {SIZE{1'b0}};
 
 input	[SIZE-1:0]	din ;	// data in
 input			en ;	// functional enable
@@ -383,6 +521,10 @@ input			clk ;	// clk
 output	[SIZE-1:0]	q ;	// output
 
 reg 	[SIZE-1:0]	q ;
+
+`ifdef RTL_FF_POR_INIT
+initial q = POR;
+`endif
 
 // Enable Interpretation. Ultimate interpretation depends on design
 // 
@@ -404,6 +546,11 @@ module dffrle_ns (din, rst_l, en, clk, q);
 // synopsys template
 
 parameter SIZE = 1;
+// Power-up (POR) value.  Real flops come out of configuration with a
+// defined state; simulators start them at x unless told otherwise.  The
+// port flow defines RTL_FF_POR_INIT so the simulation models the FPGA
+// power-up state instead of relying on testbench `force` statements.
+parameter [SIZE-1:0] POR = {SIZE{1'b0}};
 
 input	[SIZE-1:0]	din ;	// data in
 input			en ;	// functional enable
@@ -413,6 +560,10 @@ input			clk ;	// clk
 output	[SIZE-1:0]	q ;	// output
 
 reg 	[SIZE-1:0]	q ;
+
+`ifdef RTL_FF_POR_INIT
+initial q = POR;
+`endif
 
 // Enable Interpretation. Ultimate interpretation depends on design
 // 
@@ -434,6 +585,11 @@ module dffr_async (din, clk, rst, q, se, si, so);
 // synopsys template
 
 parameter SIZE = 1;
+// Power-up (POR) value.  Real flops come out of configuration with a
+// defined state; simulators start them at x unless told otherwise.  The
+// port flow defines RTL_FF_POR_INIT so the simulation models the FPGA
+// power-up state instead of relying on testbench `force` statements.
+parameter [SIZE-1:0] POR = {SIZE{1'b0}};
 
 input   [SIZE-1:0]      din ;   // data in
 input                   clk ;   // clk or scan clk
@@ -446,6 +602,10 @@ input   [SIZE-1:0]      si ;    // scan-input
 output  [SIZE-1:0]      so ;    // scan-output
 
 reg     [SIZE-1:0]      q ;
+
+`ifdef RTL_FF_POR_INIT
+initial q = POR;
+`endif
 
 `ifdef NO_SCAN
 always @ (posedge clk or posedge rst)
@@ -469,6 +629,11 @@ module dffrl_async (din, clk, rst_l, q, se, si, so);
 // synopsys template
 
 parameter SIZE = 1;
+// Power-up (POR) value.  Real flops come out of configuration with a
+// defined state; simulators start them at x unless told otherwise.  The
+// port flow defines RTL_FF_POR_INIT so the simulation models the FPGA
+// power-up state instead of relying on testbench `force` statements.
+parameter [SIZE-1:0] POR = {SIZE{1'b0}};
 
 input   [SIZE-1:0]      din ;   // data in
 input                   clk ;   // clk or scan clk
@@ -481,6 +646,10 @@ input   [SIZE-1:0]      si ;    // scan-input
 output  [SIZE-1:0]      so ;    // scan-output
 
 reg     [SIZE-1:0]      q ;
+
+`ifdef RTL_FF_POR_INIT
+initial q = POR;
+`endif
 
 `ifdef NO_SCAN
 always @ (posedge clk or negedge rst_l)
@@ -520,6 +689,11 @@ module dffrl_async_ns (din, clk, rst_l, q);
 // synopsys template
 
 parameter SIZE = 1;
+// Power-up (POR) value.  Real flops come out of configuration with a
+// defined state; simulators start them at x unless told otherwise.  The
+// port flow defines RTL_FF_POR_INIT so the simulation models the FPGA
+// power-up state instead of relying on testbench `force` statements.
+parameter [SIZE-1:0] POR = {SIZE{1'b0}};
 
 input   [SIZE-1:0]      din ;   // data in
 input                   clk ;   // clk or scan clk
@@ -530,6 +704,10 @@ output  [SIZE-1:0]      q ;     // output
 // Reset dominates
 // synopsys async_set_reset "rst_l"
  reg [SIZE-1:0] q;   
+`ifdef RTL_FF_POR_INIT
+initial q = POR;
+`endif
+
 always @ (posedge clk or negedge rst_l)
   if (~rst_l) q[SIZE-1:0] <= {SIZE{1'b0}};
   else q[SIZE-1:0] <= ({SIZE{rst_l}} & din[SIZE-1:0]);

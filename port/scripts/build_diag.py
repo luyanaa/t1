@@ -91,7 +91,7 @@ def preprocess(diag: str, extra_defines):
     return res.stdout
 
 
-def expand_th_fork(pp_text: str) -> str:
+def expand_th_fork(pp_text: str, mask: int = None) -> str:
     """Expand the midas/m4 `th_fork(label)` / `th_fork_jmp_p(label)` macros.
 
     Legacy expansion (macros.m4 start_fork_expand):
@@ -107,11 +107,16 @@ def expand_th_fork(pp_text: str) -> str:
     the mask; single-thread diags get just `i=0`.  `th_fork_jmp_p` jumps
     via %g3 instead of branching; used by mt_template diags (out of
     scope, but handled the same way for completeness).
+
+    `mask` is normally passed in from the diag *source*: cpp has already
+    deleted the `#define THREAD_MASK` line by the time we see pp_text, so
+    the fallback regex below only catches a mask that survived cpp.
     """
-    # capture diag's THREAD_MASK if defined (hex/dec literal)
-    m = re.search(r"^\s*#\s*define\s+THREAD_MASK\s+([0-9a-fA-Fx]+)",
-                  pp_text, re.M)
-    mask = int(m.group(1), 0) if m else 0x1
+    if mask is None:
+        # capture diag's THREAD_MASK if defined (hex/dec literal)
+        m = re.search(r"^\s*#\s*define\s+THREAD_MASK\s+([0-9a-fA-Fx]+)",
+                      pp_text, re.M)
+        mask = int(m.group(1), 0) if m else 0x1
     if mask == 0:
         mask = 0x1
 
@@ -203,8 +208,18 @@ def main() -> int:
     defines = collect_defines(diag)
     print("build_diag: per-diag defines:", " ".join(defines) or "(none)")
 
+    # THREAD_MASK is read from the diag source, before cpp deletes the
+    # `#define THREAD_MASK` line.
+    with open(diag) as f:
+        src_text = f.read()
+    m = re.search(r"^\s*#\s*define\s+THREAD_MASK\s+([0-9a-fA-Fx]+)",
+                  src_text, re.M)
+    mask = int(m.group(1), 0) if m else None
+    if mask is not None:
+        print("build_diag: THREAD_MASK=%#x" % mask)
+
     pp_text = preprocess(diag, defines)
-    pp_text = expand_th_fork(pp_text)
+    pp_text = expand_th_fork(pp_text, mask)
     check_midas(pp_text, diag)
     elf = assemble(pp_text, work)
 

@@ -75,6 +75,16 @@ module bw_r_l2d_32k (/*AUTOARG*/
 `else
    reg [155:0] 		way0_decc[1023:0] ;
    reg [155:0] 		way1_decc[1023:0] ;
+`ifdef RTL_L2_POR_INIT
+   // Simulation-only POR clear of the L2 data array (see bw_r_l2t.v).
+   integer por_i;
+   initial begin
+      for (por_i = 0; por_i < 1024; por_i = por_i + 1) begin
+         way0_decc[por_i] = 156'b0;
+         way1_decc[por_i] = 156'b0;
+      end
+   end
+`endif
 `endif
     
    wire			acc_en_d1;

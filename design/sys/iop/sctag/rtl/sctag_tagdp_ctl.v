@@ -1290,21 +1290,21 @@ mux2ds #(12)  mux_evict_way_sel_c2
               ) ;
 
 
-dff_s    #(12)   ff_lru_way_c3   (.din(evict_way_sel_c2[11:0]),
+dff_s_por0 #(12) ff_lru_way_c3   (.din(evict_way_sel_c2[11:0]),
                                .clk(rclk),
                                .q(lru_way_sel_c3[11:0]),
                                .se(se),
                                .si(),
                                .so());
 
-dff_s    #(12)   ff_lru_way_c3_1   (.din(evict_way_sel_c2[11:0]),
+dff_s_por0 #(12) ff_lru_way_c3_1   (.din(evict_way_sel_c2[11:0]),
                                .clk(rclk),
                                .q(lru_way_sel_c3_1[11:0]),
                                .se(se),
                                .si(),
                                .so());
 
-dff_s    #(12)   ff_valid_c3   (.din(vuad_dp_valid_c2[11:0]),
+dff_s_por0 #(12) ff_valid_c3   (.din(vuad_dp_valid_c2[11:0]),
                                .clk(rclk),
                                .q(valid_c3[11:0]),
                                .se(se),

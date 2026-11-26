@@ -735,6 +735,18 @@ reg	[1:0]	way_d1;
 reg		wren_d1, rden_d1 ;
 reg             [27:0]  way0[1023:0] ;
 reg             [27:0]  way1[1023:0] ;
+`ifdef RTL_L2_POR_INIT
+// Simulation-only POR clear: the tag array has no reset in silicon, so
+// behavioural sim reads X and every tag compare (and hence the way select)
+// goes X.  Zeroing the tags makes reads deterministic (all-invalid -> miss).
+integer por_i;
+initial begin
+  for (por_i = 0; por_i < 1024; por_i = por_i + 1) begin
+    way0[por_i] = 28'b0;
+    way1[por_i] = 28'b0;
+  end
+end
+`endif
 reg	[27:0]	tag_way0, tag_way1 ;
 
 // JC modified begin

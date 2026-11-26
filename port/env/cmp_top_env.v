@@ -653,36 +653,16 @@ module cmp_top;
   end
 
   //---------------------------------------------------------------
-  // IFU IMISS X-init: the Missed-Instruction-List flops mil0..mil3
-  // (sparc_ifu_ifqdp.v:390-407) are dff_s with NO reset.  In Icarus they
-  // come up X; dp_mux4ds milreq_mux then maps a non-one-hot select to
-  // 1'bx, producing a spurious VLD=1 IMISS with an X address that floods
-  // L2_DATA_ERR "way select xxx" and deadlocks the CCX arbiter.  Slam
-  // them to 0 once at t=0 (legacy slam_init equivalent), then release so
-  // the real IFU pipeline drives them afterward.
+  // IFU IMISS power-up state: the Missed-Instruction-List flops mil0..3
+  // (sparc_ifu_ifqdp.v:390-407) and the PCX thread-select flop
+  // (sparc_ifu_ifqctl.v:1325) have no reset, so plain simulation starts
+  // them at x and the milreq mux (dp_mux4ds) turns a non-one-hot select
+  // into an x address that floods the CCX arbiter.
+  // These flops now carry an explicit power-up value in the RTL
+  // (swrvr_clib dff_s POR parameter: 41'b0 for the MIL entries, 4'b0001
+  // for pcxthr_ff), enabled by RTL_FF_POR_INIT in the port build.  The
+  // former t=0 slam-and-release forces are gone.
   //---------------------------------------------------------------
-  initial begin
-    // mil_entryN is the .q output of the milN dff_s instance.  ifqdp is a
-    // direct child of ifu (netlist scope "ifu"->"ifqdp"), NOT ifu.ifq.ifqdp.
-    force cmp_top.iop.sparc0.ifu.ifqdp.mil0.q = 41'b0;
-    force cmp_top.iop.sparc0.ifu.ifqdp.mil1.q = 41'b0;
-    force cmp_top.iop.sparc0.ifu.ifqdp.mil2.q = 41'b0;
-    force cmp_top.iop.sparc0.ifu.ifqdp.mil3.q = 41'b0;
-    // The mux SELECT also boots X: ifc_ifd_milreq_sel_d_l = ~dpcxthr_d, and
-    // dpcxthr_d is pcxthr_ff (dff_s, no reset) in ifqctl (:1325).
-    force cmp_top.iop.sparc0.ifu.ifqctl.pcxthr_ff.q = 4'b0001;
-    // RELEASE at ~2us: once the CTU clkctrl fix made the clocks real, the IFU
-    // flops clock normally, so holding them would keep mil0 entry = 0 and the
-    // PCX address would read 0 (the mux selects entry0).  Release lets the
-    // real MIL/PCX pipeline drive the reset-fetch address.
-    #2000000;
-    release cmp_top.iop.sparc0.ifu.ifqdp.mil0.q;
-    release cmp_top.iop.sparc0.ifu.ifqdp.mil1.q;
-    release cmp_top.iop.sparc0.ifu.ifqdp.mil2.q;
-    release cmp_top.iop.sparc0.ifu.ifqdp.mil3.q;
-    release cmp_top.iop.sparc0.ifu.ifqctl.pcxthr_ff.q;
-    $display("[cmp_top_env] IFU MIL/pcxthr slam RELEASED at %0t", $time);
-  end
 
   //======================================================================
   // BRING-UP FIX SET A+B (t=0, before the first cmp_gclk edge).
@@ -694,15 +674,15 @@ module cmp_top;
     //     comment (sparc_ifu_fcl.v:2897) says it must power up 4'b0001.
     //     If X, thr_d/e/m/w are X -> rstint_m/intr_vld_w X -> thrfsm
     //     (sparc_ifu_thrfsm.v:77-95) can never leave IDLE.  HOLD.
-`ifndef SPARC_1THREAD
-    force cmp_top.iop.sparc0.ifu.fcl.thrf_reg.q = 4'b0001;
-`endif
+    //     Now modelled in the RTL itself: thrf_reg is instantiated with
+    //     dff_s POR = 4'b0001 (sparc_ifu_fcl.v:2904), so no force is needed.
 
     // (2) ISSUE B: LSU IOB-forward-packet flop (lsu_qctl2.v:700 fwdpkt_ff,
     //     dffre_s) has rst=fwdpkt_reset(:694) and en=cpx_fwd_pkt_en_cx(:680)
     //     both X -> stuck X.  fwdpkt_rq_vld=X poisons lsu_rrobin_picker2 ->
     //     spc_pcx_req_pq -> CCX PCX -> sctag way-select X -> L2_DATA_ERR.
-    force cmp_top.iop.sparc0.lsu.qctl2.fwdpkt_vld_unmasked = 1'b0;
+    //     Modelled in the RTL now: fwdpkt_ff (dffre_s) powers up 0 via the
+    //     dffre_s POR parameter, so fwdpkt_rq_vld is 0 from the first cycle.
 
     // (2b) SPU load/store packet flop (spu_lsurpt1, dff_s, no reset) is X.
     //      lsu_qdp1:1626 selects it as `imiss_strm_pcx_pkt` whenever
@@ -711,7 +691,8 @@ module cmp_top;
     //      which kills the reset fetch.  SPU is unused for boot: hold it 0.
     //      VERIFIED: with this, spu_lsu_ldst_pckt_d1 / imiss_strm_pcx_pkt /
     //      spc_pcx_data_pa all read 0 (clean).
-    force cmp_top.iop.sparc0.lsu.qdp1.spu_lsu_ldst_pckt_d1 = 124'b0;
+    //      Modelled in the RTL now: spu_lsu_ldst_pckt_d1 is a dff_s that
+    //      powers up 0 via the POR parameter, so the packet is clean.
 
     // (2c) TLU trap base address (%tba) is a reset-less dff_s
     //      (tlu_tdp.v:1453 tba0), so it is X until software writes it and the
@@ -722,22 +703,16 @@ module cmp_top;
     //      (tlu_tcl.v:1233, the thread taking a trap) is X between traps, so
     //      tba_data stays X even after %tba is written.  Holding it one-hot
     //      makes tba_data track true_tba0, which boot_main programs.
-    force cmp_top.iop.sparc0.tlu.tcl.tlu_thrd_wsel_w2 = 4'b0001;
+    //      Modelled in the RTL now: tlu_thrd_wsel_w2 is decoded from
+    //      tsa_wr_tid, which powers up 00 -> thread0_wtrp_w2 = 1, so the
+    //      select is one-hot (0001) without any force.
 
     // (3) LSU PCX queue monitors (lsu_qctl1.v:3890-3965, lsu_pcx_qmon.v:120/
     //     135 dffre_s, rst/en mutually dependent) stuck X -> queue_write=X
     //     blocks the first IMISS request.  HOLD (loses the 2-entry flow
     //     control; CCX still backpressures with grants).
-    force cmp_top.iop.sparc0.lsu.qctl1.l2bank0_qmon.entry0_full = 1'b0;
-    force cmp_top.iop.sparc0.lsu.qctl1.l2bank0_qmon.entry1_full = 1'b0;
-    force cmp_top.iop.sparc0.lsu.qctl1.l2bank1_qmon.entry0_full = 1'b0;
-    force cmp_top.iop.sparc0.lsu.qctl1.l2bank1_qmon.entry1_full = 1'b0;
-    force cmp_top.iop.sparc0.lsu.qctl1.l2bank2_qmon.entry0_full = 1'b0;
-    force cmp_top.iop.sparc0.lsu.qctl1.l2bank2_qmon.entry1_full = 1'b0;
-    force cmp_top.iop.sparc0.lsu.qctl1.l2bank3_qmon.entry0_full = 1'b0;
-    force cmp_top.iop.sparc0.lsu.qctl1.l2bank3_qmon.entry1_full = 1'b0;
-    force cmp_top.iop.sparc0.lsu.qctl1.fpiobridge_qmon.entry0_full = 1'b0;
-    force cmp_top.iop.sparc0.lsu.qctl1.fpiobridge_qmon.entry1_full = 1'b0;
+    //      Modelled in the RTL now: the qmon entry_full flops (dffre_s in
+    //      lsu_pcx_qmon.v) power up 0 via the POR parameter.
 
     // (4) sparc1..7 are not compiled (iop.v:3595/3684/4129); their PCX
     //     request/atom nets float into the shared arbiter.  HOLD at 0.

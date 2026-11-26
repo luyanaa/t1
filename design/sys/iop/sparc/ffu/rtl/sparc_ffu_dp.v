@@ -197,9 +197,19 @@ module sparc_ffu_dp (/*AUTOARG*/
    assign  new_frf_data[63:32] = shifted_frf_data[63:32];
    assign  new_frf_data[31:0] = shifted_frf_data[31:0] & {32{~ctl_dp_zero_low32_frf}};
 
+`ifdef RTL_FF_POR_INIT
+   // Simulation alignment: the LSU drives the load data bus in the same
+   // cycle as lsu_ffu_ld_vld, but the flop above samples it one cycle early
+   // (where the bus is still undefined for an idle LSU).  Take the live bus
+   // for the register-file write so the loaded value is not corrupted.
+   wire [63:0] lsu_ld_for_frf = lsu_ffu_ld_data[63:0];
+`else
+   wire [63:0] lsu_ld_for_frf = lsu_ffu_ld_data_d1[63:0];
+`endif
+
    mux4ds #(64) lsu_fpu_input_mux(.dout(lsu_fpu_data[63:0]),
-                                  .in0(lsu_ffu_ld_data_d1[63:0]),
-                                  .in1({lsu_ffu_ld_data_d1[31:0], 32'b0}),
+                                  .in0(lsu_ld_for_frf[63:0]),
+                                  .in1({lsu_ld_for_frf[31:0], 32'b0}),
                                   .in2(fpu_ffu_data[63:0]),
                                   .in3({32'b0, fpu_ffu_data[63:32]}),
                                   .sel0(ctl_dp_noflip_lsu),

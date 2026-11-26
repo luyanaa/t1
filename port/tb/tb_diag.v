@@ -1,6 +1,6 @@
 `timescale 1ps/1ps
 
-// Generic OpenSPARC T1 diag testbench.
+// Generic OpenSPARC T1 diag testbench (per-thread version).
 //
 // Unlike tb_core_smoke.v (hard-coded image, pass = observe a second IMISS),
 // this TB is a minimal L2/DRAM responder driven by a $readmemh memory image,
@@ -12,12 +12,16 @@
 //   Lookup: mem[pa >> 3].
 //
 // Usage:
-//   vvp tb_diag.vvp +memfile=port/build/diag/<name>.mem [+max_cycle=N]
+//   vvp tb_diag.vvp +memfile=port/build/diag/<name>.mem [+threads=N]
+//                                                     [+max_cycle=N]
 //
-// Boot mechanism is identical to tb_core_smoke.v: a CPX INT_RET reset
-// interrupt is injected once; the served image's trap table at
-// PA 0xfff0000000 (reset slot 0xfff0000040) provides the first instructions.
-// The minimal boot harness (port/scripts/t1boot_min.s) lands there.
+// Boot mechanism is identical to tb_core_smoke.v: one CPX INT_RET reset
+// interrupt per thread is injected (thread id in cputhread [12:8]); the
+// served image's trap table at PA 0xfff0000000 (reset slot 0xfff0000040)
+// provides the first instructions.  The minimal boot harness
+// (port/scripts/t1boot_min.s) lands there.  +threads=N sets how many
+// threads are started (default: the compiled-in SMT width); a diag that
+// only runs thread 0 is started with +threads=1.
 //
 // PCX/CPX protocol (field defs: design/sys/iop/include/iop.h):
 //   PCX IMISS_RQ (5'b10000) -> two CPX IFILL_RET (4'b0001) 16B halves
@@ -26,18 +30,23 @@
 //   PCX STQ_RQ   (5'b00111) -> write mem, then CPX ST_ACK
 //   other types  -> logged, no response
 //
-// PASS/FAIL: a STORE_RQ to PA thread_status_mem (0x10002000) carries a
+// PASS/FAIL: a STORE_RQ to PA thread_status_mem (0xfff0020000) carries a
 // one-hot thread result word; upper 32 bits 0 => good_trap (pass),
-// nonzero (0xF) => bad_trap (fail).
+// nonzero (0xF) => bad_trap (fail).  Every active thread writes that
+// same word, so the scoreboard keeps one entry per TID and only decides
+// once all started threads have reported.
 
 module tb_diag;
     localparam integer CLK_HALF       = 2500;   // 200 MHz
     localparam integer RESET_HOLD_PS  = 100000;
     localparam integer BOOT_CYCLE     = 300;
     localparam integer TIMEOUT_CYCLES = 200000;
+    localparam integer THREAD_GAP     = 16;
+    localparam integer MAXQ           = 16;     // request queue depth
 
-    // thread_status_mem (t1boot.ld .tstatus @ PA 0x10020000)
-    localparam [39:0] STATUS_MEM_PA = 40'h00_1002_0000;
+    // thread_status_mem (t1boot.ld .tstatus @ PA 0xfffff0020000, i.e.
+    // 40-bit PA 0xfff0020000 in the RED IO window)
+    localparam [39:0] STATUS_MEM_PA = 40'hff_f002_0000;
 
     // PCX request types (iop.h)
     localparam [4:0] LOAD_RQ  = 5'b00000;
@@ -54,6 +63,17 @@ module tb_diag;
     localparam [2:0] SZ_8B  = 3'b011;
     localparam [2:0] SZ_16B = 3'b111;
 
+`ifdef SPARC_1THREAD
+    localparam integer SMT_WIDTH = 1;
+`elsif SPARC_2THREAD
+    localparam integer SMT_WIDTH = 2;
+`else
+    localparam integer SMT_WIDTH = 4;
+`endif
+
+    integer nthreads;          // threads started by this run
+    reg [3:0] active_mask;     // one-hot of the started threads
+
     reg gclk;
     reg reset_l;
 
@@ -66,27 +86,12 @@ module tb_diag;
 
     reg [4:0] grant_px;
 
-    // CPX INT_RET reset interrupt for CPU0/thread0 (same as tb_core_smoke)
-    localparam [144:0] CPX_RST_PKT =
-        (145'h1 << 144) | (145'h7 << 140) | (145'h1 << 16);
-
-    reg boot_rdy;
-    reg boot_sent;
+    reg         boot_pend;
+    reg [1:0]   boot_tid;
+    integer     boot_next;
 
     // ---------------------------------------------------------------
     // Backing memory: 64-bit words indexed by (pa>>3) & MASK.
-    //
-    // Physical addresses span 0xfff0000000 (RED boot page) down to
-    // 0x10000000 (diag text/data).  A flat mem[] indexed by pa>>3 needs
-    // 2^36 words — too large.  Instead we use a hash window: the boot
-    // page and diag regions occupy disjoint low bits, so mask keeps the
-    // interesting bits.  PA[27:3] distinguishes 0x10002000 (status) from
-    // RED/data regions; RED PA[39:36]=0xf aliases onto high bits too, so
-    // we use PA[31:3] (29 bits, 512M words is still too big).
-    //
-    // Practical compromise: two separate images.
-    //   mem_low : PA[27:3]  for PA < 0x10000000 is impossible (RED is
-    //             high), so split by PA[39] — see mem_lookup below.
     // ---------------------------------------------------------------
     localparam integer LOW_WORDS  = 1 << 25;   // PA[27:3]  -> up to 0x10000000
     localparam integer RED_WORDS  = 1 << 17;   // PA[19:3]  -> RED page 0xfff0..
@@ -96,15 +101,18 @@ module tb_diag;
     reg [256*8-1:0] memfile;
     integer max_cycle;
 
-    // mem[pa>>3] equivalent: RED page (PA[39:28]==0xff0) -> mem_red[PA[19:3]];
-    // everything else -> mem_low[PA[27:3]].  Diag images only use these.
+    // The arrays come up as x in simulation, and st_write is a byte-merged
+    // read-modify-write: without scrubbing x the first partial store leaves
+    // the untouched lanes as x and every later load reads x back.
     function [63:0] mem_read;
         input [39:0] pa;
+        reg [63:0] v;
         begin
-            if (pa[39:28] == 12'hfff)
-                mem_read = mem_red[pa[19:3]];
+            if ((pa[39:28] == 12'hfff) || (pa[35:28] == 8'h0f))
+                v = mem_red[pa[19:3]];
             else
-                mem_read = mem_low[pa[27:3]];
+                v = mem_low[pa[27:3]];
+            mem_read = (^v === 1'bx) ? 64'b0 : v;
         end
     endfunction
 
@@ -112,18 +120,13 @@ module tb_diag;
         input [39:0] pa;
         input [63:0] val;
         begin
-            if (pa[39:28] == 12'hfff)
+            if ((pa[39:28] == 12'hfff) || (pa[35:28] == 8'h0f))
                 mem_red[pa[19:3]] = val;
             else
                 mem_low[pa[27:3]] = val;
         end
     endtask
 
-    // Image loader: parse the sparse $readmemh-style file ourselves.
-    // Each non-comment token is either "@<hexidx>" (word index = pa/8) or a
-    // 16-hex-digit 64-bit word.  iverilog's $fscanf("%s") right-aligns the
-    // string in `line`, so we distinguish records by $sscanf success, not
-    // by peeking at a fixed byte.  Each word is banked via mem_write.
     task load_image;
         input [256*8-1:0] path;
         integer fid, code;
@@ -144,13 +147,10 @@ module tb_diag;
                 code = $fscanf(fid, "%s", line);
                 if (code == 1) begin
                     if ($sscanf(line, "@%h", idx) == 1) begin
-                        waddr = idx;                    // "@<idx>" address record
+                        waddr = idx;
                     end else if (line[7:0] == 8'h2f) begin
-                        // token starting with '/' — comment text; skip.
-                        // ($fscanf %s splits on whitespace, so a "// ..."
-                        // comment arrives as several tokens, all ignored.)
+                        // comment token
                     end else if ($sscanf(line, "%h", wval) == 1) begin
-                        // waddr is a word index; reconstruct byte PA
                         mem_write({waddr[36:0], 3'b000}, wval);
                         waddr  = waddr + 1;
                         nwords = nwords + 1;
@@ -172,6 +172,18 @@ module tb_diag;
         end
         if (!$value$plusargs("max_cycle=%d", max_cycle))
             max_cycle = TIMEOUT_CYCLES;
+
+        nthreads = 1;
+        if ($value$plusargs("threads=%d", nthreads)) begin
+            if (nthreads < 1) nthreads = 1;
+            if (nthreads > SMT_WIDTH) nthreads = SMT_WIDTH;
+        end
+        case (nthreads)
+            1: active_mask = 4'b0001;
+            2: active_mask = 4'b0011;
+            default: active_mask = 4'b1111;
+        endcase
+        $display("TB: %0d active thread(s), mask=%b", nthreads, active_mask);
     end
 
     // ---------------------------------------------------------------
@@ -187,6 +199,148 @@ module tb_diag;
         .cpx_spc_data_rdy_cx2 (cpx_spc_data_rdy_cx2),
         .cpx_spc_data_cx2     (cpx_spc_data_cx2)
     );
+
+`ifdef FPU_SMOKE
+    // ---------------------------------------------------------------
+    // Shared FPU (the block that sits behind the CCX in a real chip,
+    // design/sys/iop/fpu/rtl/fpu.v).  The PCX/CPX fabric is replaced by
+    // the two queues below: requests whose PCX type is 5'h0a / 5'h0b
+    // (the FPU A/B packets) are routed here instead of to the memory
+    // responder, and the FPU's CPX returns are multiplexed onto the
+    // core's CPX port ahead of nothing (memory keeps priority).
+    // ---------------------------------------------------------------
+    wire [7:0]   fp_cpx_req_cq;
+    wire [144:0] fp_cpx_data_ca;
+
+
+    localparam FPQ    = 4;      // PCX -> FPU request queue depth
+    localparam FPCPXQ = 4;      // FPU -> CPX return FIFO depth
+    reg [123:0] fp_q    [0:FPQ-1];
+    integer     fp_q_head, fp_q_count;
+    reg [144:0] fp_cq   [0:FPCPXQ-1];
+    integer     fp_cq_head, fp_cq_count;
+    integer     fp_rq_count, fp_ret_count, fp_drop;
+    reg         fp_req_d;       // fp_cpx_req_cq delayed one cycle
+    integer     fp_i;
+
+    wire [123:0] fp_pcx_data = (fp_q_count != 0) ? fp_q[fp_q_head] : 124'b0;
+    // The FPU pairs the two halves of an op (rs2 then rs1) when they arrive
+    // on adjacent cycles; wait for a pair, then keep the port busy until the
+    // queue drains so the two halves stay back to back.
+    reg          fp_sending;
+    wire         fp_pcx_rdy  = reset_l && ((fp_q_count >= 2) || fp_sending);
+
+    // Never let the un-written FIFO array (all X) reach the core's CPX
+    // input: an empty FIFO reads out as zero.
+    wire [144:0] fp_data_out = (fp_cq_count != 0) ? fp_cq[fp_cq_head] : 145'b0;
+    wire         fp_vld_out  = reset_l && (fp_cq_count != 0);
+
+    fpu fpu0 (
+        .pcx_fpio_data_rdy_px2 (fp_pcx_rdy),
+        .pcx_fpio_data_px2     (fp_pcx_data),
+        .arst_l                (reset_l),
+        .grst_l                (reset_l),
+        .gclk                  (gclk),
+        .cluster_cken          (1'b1),
+        .fp_cpx_req_cq         (fp_cpx_req_cq),
+        .fp_cpx_data_ca        (fp_cpx_data_ca),
+        .ctu_tst_pre_grst_l    (1'b1),
+        .global_shift_enable   (1'b0),
+        .ctu_tst_scan_disable  (1'b1),
+        .ctu_tst_scanmode      (1'b0),
+        .ctu_tst_macrotest     (1'b0),
+        .ctu_tst_short_chain   (1'b0),
+        .si                    (1'b0),
+        .so                    ()
+    );
+`endif
+
+`ifdef FPU_SMOKE
+    // FFU/LSU bring-up probe: is the core even asking for an fpop?
+    reg ffu_trace = 1'b0;
+    initial if ($test$plusargs("ffutrace")) ffu_trace = 1'b1;
+    always @(posedge gclk) if (ffu_trace) begin
+        $display("FFU cyc=%0d fpop_rq_vld=%b fpop1_d=%b fpop2_d=%b fld_d=%b opcode=%h op1_rdy=%b op2_rdy=%b op_w3=%b ack=%b opf=%h",
+                 cycle_count,
+                 dut.sparc0.ffu_lsu_fpop_rq_vld,
+                 dut.sparc0.ifu_ffu_fpop1_d,
+                 dut.sparc0.ifu_ffu_fpop2_d,
+                 dut.sparc0.ifu_ffu_fld_d,
+                 dut.sparc0.ifu_ffu_fpopcode_d,
+                 dut.sparc0.ffu.ctl.fpop1_ready_w2,
+                 dut.sparc0.ffu.ctl.fpop2_ready_w3,
+                 dut.sparc0.ffu.ctl.fpu_op_w3_vld,
+                 dut.sparc0.ffu.ctl.lsu_ffu_ack,
+                 dut.sparc0.ffu.ctl.opf);
+        $display("FRF3 cyc=%0d wen=%b addr=%h wr=%h rd=%h",
+                 cycle_count, dut.sparc0.ffu.frf.ctl_frf_wen,
+                 dut.sparc0.ffu.frf.ctl_frf_addr,
+                 dut.sparc0.ffu.frf.dp_frf_data,
+                 dut.sparc0.ffu.frf.frf_dp_data);
+        $display("FFU2 cyc=%0d op2=%b op3=%b op3v=%b nceen=%b rs2ue=%b rb2=%b kill2=%b rs1ce=%b ue3=%b uetrap=%b rb13=%b ce=%b pce=%b pue=%b rbk=%b r2=%b r2w=%b fl2=%b",
+                 cycle_count,
+                 dut.sparc0.ffu.ctl.fpu_op_w2,
+                 dut.sparc0.ffu.ctl.fpu_op_w3,
+                 dut.sparc0.ffu.ctl.fpu_op_w3_vld,
+                 dut.sparc0.ffu.ctl.nceen,
+                 dut.sparc0.ffu.ctl.rs2_ue_w2,
+                 dut.sparc0.ffu.ctl.rollback_rs2_w2,
+                 dut.sparc0.ffu.ctl.ecc_kill_rs2_w2,
+                 dut.sparc0.ffu.ctl.rs1_ce_w3,
+                 dut.sparc0.ffu.ctl.ue_w3,
+                 dut.sparc0.ffu.ctl.ue_trap_w3,
+                 dut.sparc0.ffu.ctl.rollback_rs1_w3,
+                 dut.sparc0.ffu.ctl.ce,
+                 dut.sparc0.ffu.ctl.previous_ce,
+                 dut.sparc0.ffu.ctl.previous_ue,
+                 dut.sparc0.ffu.ctl.rolled_back,
+                 dut.sparc0.ffu.ctl.ren_rs2_w2,
+                 dut.sparc0.ffu.ctl.ren_rs2_w,
+                 dut.sparc0.ffu.ctl.flush_w2);
+        $display("OPF cyc=%0d opf=%h d=%h pk=%h p1=%b p2=%b ack=%b ldd=%h",
+                 cycle_count, dut.sparc0.ffu.ctl.opf,
+                 dut.sparc0.ffu_lsu_data,
+                 {dut.sparc0.ffu_lsu_data[79:72], dut.sparc0.ffu_lsu_data[63:0]},
+                 dut.sparc0.ffu.ctl.fpop1_ready_w2,
+                 dut.sparc0.ffu.ctl.fpop2_ready_w3,
+                 dut.sparc0.ffu.ctl.lsu_ffu_ack,
+                 dut.sparc0.lsu_ffu_ld_data);
+        if (cycle_count > 1300 && cycle_count < 1500)
+            $display("FPRQ cyc=%0d reqcq=%b vld=%b data=%h",
+                     cycle_count, fpu0.fp_cpx_req_cq,
+                     fpu0.fp_cpx_data_ca[144],
+                     fpu0.fp_cpx_data_ca[63:0]);
+        $display("LDW cyc=%0d ldvld=%b ldret=%b nfl=%b fl=%b nff=%b ff=%b",
+                 cycle_count, dut.sparc0.ffu.ctl.lsu_ffu_ld_vld,
+                 dut.sparc0.ffu.ctl.ld_ret,
+                 dut.sparc0.ffu.ctl.ctl_dp_noflip_lsu,
+                 dut.sparc0.ffu.ctl.ctl_dp_flip_lsu,
+                 dut.sparc0.ffu.ctl.ctl_dp_noflip_fpu,
+                 dut.sparc0.ffu.ctl.ctl_dp_flip_fpu);
+        $display("QMON cyc=%0d e0=%b e1=%b upd4=%b gr4=%b sel4=%b",
+                 cycle_count, dut.sparc0.lsu.qctl1.fpiobridge_qmon.entry0_full,
+                 dut.sparc0.lsu.qctl1.fpiobridge_qmon.entry1_full,
+                 dut.sparc0.lsu.qctl1.spc_pcx_req_update_w2[4],
+                 dut.sparc0.pcx_spc_grant_px[4],
+                 dut.sparc0.lsu.qctl1.sel_qentry0[4]);
+        $display("LSU2 cyc=%0d ld0=%b ld1=%b st0=%b st1=%b im=%b strm=%b rq=%h",
+                 cycle_count, dut.sparc0.lsu.qctl1.ld0_pcx_rq_vld,
+                 dut.sparc0.lsu.qctl1.ld1_pcx_rq_vld,
+                 dut.sparc0.lsu.qctl1.st0_pcx_rq_vld,
+                 dut.sparc0.lsu.qctl1.st1_pcx_rq_vld,
+                 dut.sparc0.lsu.qctl1.imiss_pcx_rq_vld,
+                 dut.sparc0.lsu.qctl1.strm_pcx_rq_vld,
+                 dut.sparc0.lsu.spc_pcx_req_pq);
+        $display("LSU cyc=%0d fvld=%b pktv=%b pktu=%b qwr=%b sel=%b rqv=%b sel2=%b",
+                 cycle_count, dut.sparc0.ffu_lsu_fpop_rq_vld,
+                 dut.sparc0.lsu.qctl1.fpop_pkt_vld,
+                 dut.sparc0.lsu.qctl1.fpop_pkt_vld_unmasked,
+                 dut.sparc0.lsu.qctl1.fpop_q_wr,
+                 dut.sparc0.lsu.qctl1.fpop_pcx_rq_sel,
+                 dut.sparc0.lsu.qctl1.fpop_pcx_rq_vld,
+                 dut.sparc0.lsu.qctl1.fpop_pcx_rq_sel_d1);
+    end
+`endif
 
     initial gclk = 1'b0;
     always #(CLK_HALF) gclk = ~gclk;
@@ -214,28 +368,35 @@ module tb_diag;
     reg [1:0]  rsp_tid;
     reg [1:0]  rsp_pktid;
 
-    // One-deep pending request latch: a PCX request that arrives while the
-    // responder is busy is captured here and serviced when the FSM returns
-    // to R_IDLE, so stores/loads are never silently dropped.
-    reg        pend_vld;
-    reg [4:0]  pend_rq;
-    reg [1:0]  pend_tid;
-    reg [1:0]  pend_pid;
-    reg [2:0]  pend_sz;
-    reg [39:0] pend_addr;
-    reg [63:0] pend_data;
+    // Request queue: with several threads fetching, loading and storing
+    // at once, a single pending latch would drop requests.  The queue
+    // holds one entry per accepted PCX packet and the FSM drains it one
+    // request at a time.
+    reg [4:0]  q_rq   [0:MAXQ-1];
+    reg [1:0]  q_tid  [0:MAXQ-1];
+    reg [1:0]  q_pid  [0:MAXQ-1];
+    reg [2:0]  q_sz   [0:MAXQ-1];
+    reg [39:0] q_addr [0:MAXQ-1];
+    reg [63:0] q_data [0:MAXQ-1];
+    integer    q_head, q_count;
 
     reg          cpx_rdy;
     reg [144:0]  cpx_data;
 
     assign pcx_spc_grant_px     = grant_px;
+`ifdef FPU_SMOKE
+    // Memory (and the reset/IFILL burst) win; an FPU return that loses
+    // the cycle stays in the FIFO and is offered again next cycle.
+    assign cpx_spc_data_rdy_cx2 = cpx_rdy | fp_vld_out;
+    assign cpx_spc_data_cx2     = fp_vld_out ? fp_data_out : cpx_data;
+`else
     assign cpx_spc_data_rdy_cx2 = cpx_rdy;
     assign cpx_spc_data_cx2     = cpx_data;
+`endif
 
     // ---------------------------------------------------------------
     // Memory helpers
     // ---------------------------------------------------------------
-    // 128-bit IFILL half: two consecutive 64-bit BE words from the line.
     function [127:0] ifill_data;
         input [39:0] line;
         input        upper;
@@ -252,7 +413,6 @@ module tb_diag;
         end
     endfunction
 
-    // Aligned 64-bit word containing pa (loads).
     function [63:0] ld_word;
         input [39:0] pa;
         begin
@@ -260,7 +420,6 @@ module tb_diag;
         end
     endfunction
 
-    // Store nbytes (from pcx_sz) of stdata into mem at pa, BE lanes.
     task st_write;
         input [39:0] pa;
         input [2:0]  sz;
@@ -278,13 +437,16 @@ module tb_diag;
             endcase
             byteoff = pa[2:0];
             cur = mem_read(pa);
+            // The PCX store data is big-endian inside its 64-bit field: byte
+            // 0 of the word sits in stdata[63:56].  (It used to be taken from
+            // the low end, which byte-reversed every diag store.)
             for (i = 0; i < nbytes && i < 8; i = i + 1)
-                cur[63 - 8*(byteoff+i) -: 8] = stdata[8*i +: 8];
+                cur[63 - 8*(byteoff+i) -: 8] = stdata[63 - 8*i -: 8];
             mem_write(pa, cur);
             if (nbytes > 8) begin
                 cur = mem_read(pa + 8);
                 for (i = 0; i < nbytes-8; i = i + 1)
-                    cur[63 - 8*i -: 8] = stdata[8*(8+i) +: 8];
+                    cur[63 - 8*i -: 8] = stdata[63 - 8*(8+i) -: 8];
                 mem_write(pa + 8, cur);
             end
         end
@@ -333,16 +495,36 @@ module tb_diag;
         end
     endfunction
 
+    // CPX INT_RET reset packet for one thread: type [17:16] = 01 (reset),
+    // cputhread [12:8] = the thread to reset.
+    function [144:0] cpx_rst_pkt;
+        input [1:0] tid;
+        reg   [144:0] pkt;
+        begin
+            pkt            = 145'b0;
+            pkt[144]       = 1'b1;
+            pkt[143:140]   = 4'b0111;   // INT_RET
+            pkt[17:16]     = 2'b01;     // reset
+            pkt[9:8]       = tid;
+            cpx_rst_pkt    = pkt;
+        end
+    endfunction
+
     // ---------------------------------------------------------------
     // Combined CPX driver
+    //
+    // The CPX port is a single channel, so reset packets and responder
+    // returns are serialized: a reset packet is only offered while the
+    // responder is idle, and the responder only starts a burst while no
+    // reset packet is waiting.
     // ---------------------------------------------------------------
     always @* begin
         cpx_rdy  = 1'b0;
         cpx_data = 145'b0;
 
-        if (boot_rdy) begin
+        if (boot_pend && rsp_state == R_IDLE) begin
             cpx_rdy  = 1'b1;
-            cpx_data = CPX_RST_PKT;
+            cpx_data = cpx_rst_pkt(boot_tid);
         end
         else if (rsp_state == R_ILOW) begin
             cpx_rdy  = 1'b1;
@@ -355,6 +537,10 @@ module tb_diag;
         else if (rsp_state == R_LDRDY) begin
             cpx_rdy  = 1'b1;
             cpx_data = load_pkt(rsp_tid, ld_word(rsp_addr));
+`ifdef FPU_SMOKE
+            $display("TB: LDRET cyc=%0d addr=%h word=%h", cycle_count,
+                     rsp_addr, ld_word(rsp_addr));
+`endif
         end
         else if (rsp_state == R_SACK) begin
             cpx_rdy  = 1'b1;
@@ -365,13 +551,19 @@ module tb_diag;
     // ---------------------------------------------------------------
     // PCX monitor + scoreboard
     // ---------------------------------------------------------------
-    integer imiss_count, load_count, store_count, other_count;
+    integer imiss_count, load_count, store_count, other_count, drop_count;
     integer cycle_count;
-    reg     pcx_valid_d;
+    reg [123:0] pcx_sig_d;
     reg     finished;
 
-    wire pcx_new  = reset_l & spc_pcx_data_pa[123] & ~pcx_valid_d;
     wire [4:0]  pcx_rq   = spc_pcx_data_pa[122:118];
+`ifdef FPU_SMOKE
+    // The FPU's two request packets (design/sys/iop/fpu/rtl/fpu_in.v:
+    // fpu_in_ctl decodes 5'h0a as packet A and 5'h0b as packet B).
+    wire is_fpop = (pcx_rq == 5'h0a) || (pcx_rq == 5'h0b);
+`else
+    wire is_fpop = 1'b0;
+`endif
     wire [1:0]  pcx_tid  = spc_pcx_data_pa[113:112];
     wire [1:0]  pcx_pid  = spc_pcx_data_pa[108:107];
     wire [2:0]  pcx_sz   = spc_pcx_data_pa[106:104];
@@ -379,20 +571,57 @@ module tb_diag;
     wire [39:0] pcx_line = {pcx_addr[39:5], 5'b0};
     wire [63:0] pcx_data = spc_pcx_data_pa[63:0];
 
+    // A packet is accepted on the cycle it is granted.  The grant is
+    // registered from the request vector, so a back-to-back packet can
+    // appear with vld still high; comparing the packet with the previous
+    // cycle keeps the capture one-per-packet.
+    wire pcx_new_sig = (spc_pcx_data_pa[123:0] != pcx_sig_d);
+    // fpop requests are presented for a single cycle (the LSU retires the
+    // entry as soon as it is selected), so they must be taken on that cycle
+    // even though the grant lands one cycle later.
+    wire pcx_fire = reset_l & spc_pcx_data_pa[123] & pcx_new_sig &
+                    ((|grant_px) | is_fpop);
+
+`ifdef FPU_SMOKE
+    // FFU load-port data at the moment the load return is accepted, plus a
+    // dump of the FRF array afterwards (the flop-level probe can lag a cycle).
+    always @(posedge gclk) begin
+        if (cycle_count == 1800)
+            $display("TB: FRFDUMP f0=%h f2=%h f4=%h f6=%h",
+                     dut.sparc0.ffu.frf.regfile[0], dut.sparc0.ffu.frf.regfile[2],
+                     dut.sparc0.ffu.frf.regfile[4], dut.sparc0.ffu.frf.regfile[6]);
+    end
+`endif
+
+`ifdef FPU_SMOKE
+    always @(posedge gclk)
+        if (pcx_fire)
+            $display("TB: FIRE cyc=%0d rq=%b tid=%0d sz=%b addr=%h data=%h",
+                     cycle_count, pcx_rq, pcx_tid, pcx_sz, pcx_addr, pcx_data);
+`endif
+
     // A store whose aligned-8 address equals STATUS_MEM_PA is the result write.
-    wire status_hit = pcx_new && (pcx_rq == STORE_RQ || pcx_rq == STQ_RQ) &&
+    wire status_hit = pcx_fire && (pcx_rq == STORE_RQ || pcx_rq == STQ_RQ) &&
                       ((pcx_addr >> 3) == (STATUS_MEM_PA >> 3));
 
-    always @(posedge gclk)
-        pcx_valid_d <= reset_l & spc_pcx_data_pa[123];
+    reg [63:0] status_word [0:3];
+    reg [63:0] status_or;
+    reg [3:0]  reported;
 
-    // The status scoreboard is checked independently of the responder FSM:
-    // a status store may arrive while the FSM is mid-IFILL/LOAD, so it must
-    // not be gated behind the R_IDLE branch.
+    // The status scoreboard runs independently of the responder FSM: a
+    // status store may arrive while the FSM is mid-IFILL/LOAD, so it must
+    // not be gated behind the R_IDLE branch.  Every started thread writes
+    // the same word, so the verdict waits for all of them.
     always @(posedge gclk) begin
         if (reset_l && !finished && status_hit) begin
-            check_status(pcx_data);
-            finished <= 1'b1;
+            status_word[pcx_tid] = pcx_data;
+            status_or             = status_or | pcx_data;
+            reported[pcx_tid]     = 1'b1;
+            $display("TB: thread %0d reported status %h", pcx_tid, pcx_data);
+            if ((reported | (4'b1 << pcx_tid)) == active_mask) begin
+                finished = 1'b1;
+                check_status(status_or | pcx_data);
+            end
         end
     end
 
@@ -409,89 +638,184 @@ module tb_diag;
 
     initial begin
         imiss_count = 0; load_count = 0; store_count = 0; other_count = 0;
-        cycle_count = 0; pcx_valid_d = 1'b0; finished = 1'b0;
+        drop_count = 0;
+        cycle_count = 0; pcx_sig_d = 124'b0; finished = 1'b0;
+        status_or = 64'b0; reported = 4'b0;
+        status_word[0] = 64'b0; status_word[1] = 64'b0;
+        status_word[2] = 64'b0; status_word[3] = 64'b0;
         reset_l = 1'b0; grant_px = 5'b0;
-        boot_rdy = 1'b0; boot_sent = 1'b0;
+        boot_pend = 1'b0; boot_tid = 2'b0; boot_next = 0;
         rsp_state = R_IDLE; rsp_delay = 8'd0;
         rsp_addr = 40'b0; rsp_tid = 2'b0; rsp_pktid = 2'b0;
-        pend_vld = 1'b0; pend_rq = 5'b0; pend_tid = 2'b0; pend_pid = 2'b0;
-        pend_sz = 3'b0; pend_addr = 40'b0; pend_data = 64'b0;
+        q_head = 0; q_count = 0;
+`ifdef FPU_SMOKE
+        fp_q_head = 0; fp_q_count = 0;
+        fp_cq_head = 0; fp_cq_count = 0;
+        fp_rq_count = 0; fp_ret_count = 0; fp_drop = 0;
+        fp_req_d = 1'b0; fp_sending = 1'b0;
+        // Power-up model for the FFU's floating-point register file: it is
+        // BRAM inside the core, and an unwritten entry reads out as x, which
+        // the ECC check turns into an x on rs2_ue_w2 -> the fpop request
+        // never becomes valid.  Zero it the way configuration would.
+        for (fp_i = 0; fp_i < 256; fp_i = fp_i + 1)
+            dut.sparc0.ffu.frf.regfile[fp_i] = 39'b0;
+`endif
         $display("TB: start");
         #(RESET_HOLD_PS) reset_l = 1'b1;
         $display("TB: reset released at %0t", $time);
     end
 
     always @(posedge gclk) begin
+        pcx_sig_d <= spc_pcx_data_pa[123:0];
+`ifdef FPU_SMOKE
+        if (reset_l && (spc_pcx_req_pq !== 5'b0))
+            $display("TB: REQ cyc=%0d pq=%b atom=%b vld=%b type=%b tid=%0d addr=%h data=%h grant=%b",
+                     cycle_count, spc_pcx_req_pq, spc_pcx_atom_pq,
+                     spc_pcx_data_pa[123], spc_pcx_data_pa[122:118],
+                     spc_pcx_data_pa[113:112],
+                     spc_pcx_data_pa[103:64], spc_pcx_data_pa[63:0],
+                     grant_px);
+`endif
+
         if (!reset_l) begin
-            boot_rdy  <= 1'b0;
-            boot_sent <= 1'b0;
-            rsp_state <= R_IDLE;
-            rsp_delay <= 8'd0;
-            pend_vld  <= 1'b0;
-        end else if (!finished) begin
+            boot_pend  <= 1'b0;
+            boot_next  <= 0;
+            boot_tid   <= 2'b0;
+            rsp_state  <= R_IDLE;
+            rsp_delay  <= 8'd0;
+            q_head     <= 0;
+            q_count    <= 0;
+        end
+        else if (!finished) begin
             cycle_count <= cycle_count + 1;
 
-            boot_rdy <= 1'b0;
-            if (!boot_sent && cycle_count == BOOT_CYCLE) begin
-                boot_rdy  <= 1'b1;
-                boot_sent <= 1'b1;
-                $display("TB: inject CPX INT_RET reset packet at cyc=%0d",
-                         cycle_count);
+            // ---- one reset packet per thread ------------------------
+            // Offered as soon as the responder is idle; the pending flag
+            // is only cleared once the packet has actually been driven.
+            if (boot_pend) begin
+                if (rsp_state == R_IDLE)
+                    boot_pend <= 1'b0;
+            end
+            else if (boot_next < nthreads && cycle_count >= BOOT_CYCLE &&
+                     ((cycle_count - BOOT_CYCLE) % THREAD_GAP) == 0) begin
+                boot_pend <= 1'b1;
+                boot_tid  <= boot_next[1:0];
+                boot_next <= boot_next + 1;
+                $display("TB: queue CPX reset packet thread %0d at cyc=%0d",
+                         boot_next, cycle_count);
             end
 
-            // Latch any request that arrives while the FSM is busy.
-            if (pcx_new && rsp_state != R_IDLE) begin
-                pend_vld  <= 1'b1;
-                pend_rq   <= pcx_rq;
-                pend_tid  <= pcx_tid;
-                pend_pid  <= pcx_pid;
-                pend_sz   <= pcx_sz;
-                pend_addr <= pcx_addr;
-                pend_data <= pcx_data;
+            // ---- request capture ------------------------------------
+            if (pcx_fire) begin
+`ifdef FPU_SMOKE
+                if (is_fpop) begin
+                    fp_rq_count <= fp_rq_count + 1;
+                    $display("TB: FPOP rq #%0d type=%b tid=%0d op=%h id=%0d",
+                             fp_rq_count, pcx_rq, pcx_tid, pcx_data[79:72],
+                             spc_pcx_data_pa[116:112]);
+                    if (fp_q_count == FPQ) begin
+                        fp_drop <= fp_drop + 1;
+                        $display("TB: FPU request queue full, dropping type=%b tid=%0d",
+                                 pcx_rq, pcx_tid);
+                    end else begin
+                        fp_q[(fp_q_head + fp_q_count) % FPQ] <= spc_pcx_data_pa;
+                        fp_q_count <= fp_q_count + 1;
+                    end
+                end
+                else
+`endif
+                if (q_count == MAXQ) begin
+                    drop_count <= drop_count + 1;
+                    $display("TB: request queue full, dropping type=%b tid=%0d",
+                             pcx_rq, pcx_tid);
+                end else begin
+                    q_rq [(q_head + q_count) % MAXQ] <= pcx_rq;
+                    q_tid[(q_head + q_count) % MAXQ] <= pcx_tid;
+                    q_pid[(q_head + q_count) % MAXQ] <= pcx_pid;
+                    q_sz [(q_head + q_count) % MAXQ] <= pcx_sz;
+                    q_addr[(q_head + q_count) % MAXQ] <= pcx_addr;
+                    q_data[(q_head + q_count) % MAXQ] <= pcx_data;
+                    q_count <= q_count + 1;
+                end
             end
 
-            // responder FSM
+`ifdef FPU_SMOKE
+            // ---- FPU request queue: hand out one packet per cycle ----
+            // Holding a packet would feed the FPU the same one forever; a
+            // queued packet is presented for exactly one cycle and retired.
+            if (fp_pcx_rdy && fp_pcx_data[123])
+                $display("FPSEND cyc=%0d pkt=%h rq=%b op=%h id=%h inq_op=%h inq_id=%h",
+                         cycle_count, fp_pcx_data, fp_pcx_data[122:118],
+                         fp_pcx_data[79:72], fp_pcx_data[116:112],
+                         fpu0.fpu_in.fpu_in_dp.fp_op_in, fpu0.fpu_in.fpu_in_dp.fp_id_in);
+            if (fp_pcx_rdy && fp_pcx_data[123]) begin
+                fp_q_head  <= (fp_q_head + 1) % FPQ;
+                fp_q_count <= fp_q_count - 1;
+                fp_sending <= 1'b1;
+            end
+            if (fp_q_count == 0) fp_sending <= 1'b0;
+
+            // ---- FPU return FIFO -------------------------------------
+            // fp_cpx_req_cq is the FPU's (pulsed) request into the CPX
+            // buffer stage; fp_cpx_data_ca carries the whole CPX packet
+            // (bit 144 = CPX valid, [143:140] = FP_RET, [135:134] = tid).
+            // fp_cpx_req_cq is the request into the CPX buffer stage; the
+            // CA packet itself lands one cycle later (fpu_out_dp flops it
+            // one more stage), so the data is sampled on the next cycle.
+            fp_req_d <= (fp_cpx_req_cq != 8'b0);
+            if (fp_req_d) begin
+                fp_ret_count <= fp_ret_count + 1;
+                if (fp_cq_count == FPCPXQ) begin
+                    fp_drop <= fp_drop + 1;
+                    $display("TB: FPU return FIFO full, dropping packet %h",
+                             fp_cpx_data_ca);
+                end else begin
+                    fp_cq[(fp_cq_head + fp_cq_count) % FPCPXQ] <= fp_cpx_data_ca;
+                    $display("TB: FPU ret #%0d %h", fp_ret_count, fp_cpx_data_ca);
+                    fp_cq_count <= fp_cq_count + 1;
+                end
+            end
+            else if (fp_vld_out && !cpx_rdy) begin
+                // presented on the CPX port this cycle -> consume it
+                fp_cq_head  <= (fp_cq_head + 1) % FPCPXQ;
+                fp_cq_count <= fp_cq_count - 1;
+            end
+`endif
+
+            // ---- responder FSM --------------------------------------
             case (rsp_state)
                 R_IDLE: begin
-                    if (pend_vld) begin
-                        // service the latched request first
-                        pend_vld <= 1'b0;
-                        if (pend_rq == IMISS_RQ) begin
-                            rsp_addr  <= {pend_addr[39:5], 5'b0};
-                            rsp_tid   <= pend_tid;
+                    if (q_count != 0 && !boot_pend) begin
+                        q_head  <= (q_head + 1) % MAXQ;
+                        q_count <= q_count - 1;
+                        if (q_rq[q_head] == IMISS_RQ) begin
+                            rsp_addr  <= {q_addr[q_head][39:5], 5'b0};
+                            rsp_tid   <= q_tid[q_head];
                             rsp_delay <= 8'd8;
                             rsp_state <= R_IDLY;
-                        end else if (pend_rq == LOAD_RQ) begin
-                            rsp_addr  <= pend_addr;
-                            rsp_tid   <= pend_tid;
+                        end
+                        else if (q_rq[q_head] == LOAD_RQ) begin
+                            rsp_addr  <= q_addr[q_head];
+                            rsp_tid   <= q_tid[q_head];
                             rsp_delay <= 8'd6;
                             rsp_state <= R_LDLY;
-                        end else if (pend_rq == STORE_RQ || pend_rq == STQ_RQ) begin
-                            st_write(pend_addr, pend_sz, pend_data);
-                            rsp_addr  <= pend_addr;
-                            rsp_tid   <= pend_tid;
-                            rsp_pktid <= pend_pid;
+                        end
+                        else if (q_rq[q_head] == STORE_RQ ||
+                                 q_rq[q_head] == STQ_RQ) begin
+                            st_write(q_addr[q_head], q_sz[q_head],
+                                     q_data[q_head]);
+                            rsp_addr  <= q_addr[q_head];
+                            rsp_tid   <= q_tid[q_head];
+                            rsp_pktid <= q_pid[q_head];
                             rsp_delay <= 8'd6;
                             rsp_state <= R_SDLY;
                         end
-                    end else if (pcx_new && pcx_rq == IMISS_RQ) begin
-                        rsp_addr  <= pcx_line;
-                        rsp_tid   <= pcx_tid;
-                        rsp_delay <= 8'd8;
-                        rsp_state <= R_IDLY;
-                    end else if (pcx_new && pcx_rq == LOAD_RQ) begin
-                        rsp_addr  <= pcx_addr;
-                        rsp_tid   <= pcx_tid;
-                        rsp_delay <= 8'd6;
-                        rsp_state <= R_LDLY;
-                    end else if (pcx_new &&
-                                 (pcx_rq == STORE_RQ || pcx_rq == STQ_RQ)) begin
-                        st_write(pcx_addr, pcx_sz, pcx_data);
-                        rsp_addr  <= pcx_addr;
-                        rsp_tid   <= pcx_tid;
-                        rsp_pktid <= pcx_pid;
-                        rsp_delay <= 8'd6;
-                        rsp_state <= R_SDLY;
+                        else begin
+                            // unsupported request: already dequeued
+                            other_count <= other_count + 1;
+                            $display("TB: ignore request type=%b tid=%0d",
+                                     q_rq[q_head], q_tid[q_head]);
+                        end
                     end
                 end
                 R_IDLY: begin
@@ -512,25 +836,27 @@ module tb_diag;
                     else                   rsp_delay <= rsp_delay - 8'd1;
                 end
                 R_SACK: rsp_state <= R_IDLE;
+                default: rsp_state <= R_IDLE;
             endcase
 
-            // request logging
-            if (pcx_new) begin
+            // ---- request logging ------------------------------------
+            if (pcx_fire) begin
                 case (pcx_rq)
                     IMISS_RQ: begin
                         imiss_count <= imiss_count + 1;
                         $display("PCX IMISS #%0d t=%0t tid=%0d line=%h",
-                                 imiss_count, $time, pcx_tid, pcx_line);
+                                 imiss_count + 1, $time, pcx_tid, pcx_line);
                     end
                     LOAD_RQ: begin
                         load_count <= load_count + 1;
                         $display("PCX LOAD  #%0d t=%0t tid=%0d sz=%0d addr=%h",
-                                 load_count, $time, pcx_tid, pcx_sz, pcx_addr);
+                                 load_count + 1, $time, pcx_tid, pcx_sz,
+                                 pcx_addr);
                     end
                     STORE_RQ, STQ_RQ: begin
                         store_count <= store_count + 1;
                         $display("PCX STORE #%0d t=%0t tid=%0d sz=%0d addr=%h data=%h",
-                                 store_count, $time, pcx_tid, pcx_sz,
+                                 store_count + 1, $time, pcx_tid, pcx_sz,
                                  pcx_addr, pcx_data);
                     end
                     default: begin
@@ -542,18 +868,27 @@ module tb_diag;
             end
 
             if ((cycle_count % 20000) == 0 && cycle_count != 0)
-                $display("TB: cycle %0d, imiss=%0d load=%0d store=%0d other=%0d",
+                $display("TB: cycle %0d, imiss=%0d load=%0d store=%0d other=%0d drop=%0d q=%0d",
                          cycle_count, imiss_count, load_count,
-                         store_count, other_count);
+                         store_count, other_count, drop_count, q_count);
+`ifdef FPU_SMOKE
+                $display("TB:   state rsp=%0d req_pq=%b cpx_rdy=%b fp_q=%0d fp_cq=%0d fp_rq=%0d fp_ret=%0d pcx_vld=%b pcx_type=%b grant=%b",
+                         rsp_state, spc_pcx_req_pq, cpx_rdy,
+                         fp_q_count, fp_cq_count, fp_rq_count, fp_ret_count,
+                         spc_pcx_data_pa[123], spc_pcx_data_pa[122:118], grant_px);
+`endif
 
             if (cycle_count == max_cycle) begin
                 $display("DIAG TIMEOUT: no PASS/FAIL within %0d cycles",
                          max_cycle);
-                $display("DIAG INFO: imiss=%0d load=%0d store=%0d other=%0d",
-                         imiss_count, load_count, store_count, other_count);
-                $display("DIAG INFO: pc0=%h pc1=%h",
+                $display("DIAG INFO: reported=%b imiss=%0d load=%0d store=%0d other=%0d drop=%0d",
+                         reported, imiss_count, load_count, store_count,
+                         other_count, drop_count);
+                $display("DIAG INFO: pc0=%h pc1=%h pc2=%h pc3=%h",
                          dut.sparc0.ifu.fdp.t0pc_f[47:0],
-                         dut.sparc0.ifu.fdp.t1pc_f[47:0]);
+                         dut.sparc0.ifu.fdp.t1pc_f[47:0],
+                         dut.sparc0.ifu.fdp.t2pc_f[47:0],
+                         dut.sparc0.ifu.fdp.t3pc_f[47:0]);
                 $finish;
             end
         end

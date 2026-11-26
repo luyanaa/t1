@@ -2,7 +2,7 @@
 
 Boot path: reset -> POR slot (0xfff0000040) -> boot_main -> main.
 Trap services via `ta N` -> tt=0x100+N -> t1boot_min.s handlers -> `done`.
-Verdict: `stx` to thread_status_mem (PA 0x10020000); upper32=0 PASS, 0xf FAIL.
+Verdict: `stx` to thread_status_mem (PA 0xfffff0020000); upper32=0 PASS, 0xf FAIL.
 
 ## DIAG PASS (verified end-to-end on Icarus)
 - tlu_tick_read_1
@@ -377,3 +377,45 @@ also prints the verdict when the word lands at PA 0xfff0020000.
   IO window (PA[39]=1) so every fetch is an uncached IOB IMISS.
 - The core's first IMISS is PA 0xfff0000020 (one slot below the POR vector),
   so t1boot_min.s puts `ba boot_main` in that slot as well as in 0x40.
+
+## Multi-thread status collection (A3a)
+
+`tb_diag.v` now resets one CPX reset packet per thread and collects a
+per-thread verdict, so a diag can report from any subset of threads:
+
+- `+threads=N` (1..SMT width, default 1) selects how many threads are
+  released.  The bench stops only when every released thread has reported.
+- `thread_status_mem` word is read as four nibbles; the PASS/FAIL decision
+  only looks at the released threads.
+- `port/diag/mt_boot_smoke.s` exercises this: `THREAD_MASK 0xf`, a
+  `th_fork` to four labels that each branch to a common `ta 0`, so all four
+  threads must reach the trap handler and store `0xf`.
+  `make -C port diag-smoke` builds and runs it, and `regress` includes it.
+- `build_diag.py` reads `THREAD_MASK` from the diag source *before* cpp, so
+  `th_fork` expands to the threads the diag asked for (previously the macro
+  was already stripped by cpp and every diag silently ran single-threaded,
+  sending threads 1-3 into `ta 0x01` = BAD_TRAP).
+- `t1boot_min.s` writes the status word with `membar #Sync` after the
+  `stx`; without it the store-buffer contents are dropped when the bench
+  stops on the report.
+
+## Power-up modelling instead of testbench forces (A3b)
+
+The flop library (`design/sys/iop/common/rtl/swrvr_clib.v`) now has a
+`POR` parameter on `dff_s`, `dff_sscan`, `dffr_s`, `dffe_s`, `dffre_s` and an
+`initial q = POR` guarded by `RTL_FF_POR_INIT`, which the port build always
+defines for simulation (`SIM_DEFS` in `port/Makefile`) and never for
+synthesis.  Real flops power up in a defined state; simulators start at
+`x`, which is why the benches used to force thread-state flops.  No force
+is needed anymore:
+
+- MIL entries (`mil0..3`, 41 bits): POR = 0.
+- `pcxthr_ff` (IFU PCX thread select): POR = 4'b0001.
+- `thrf_reg` (FCL thread select): POR = 4'b0001.
+- `tlu_thrd_wsel_w2`: decoded from `tsa_wr_tid`, which powers up 00 ->
+  `thread0_wtrp_w2` = 1 -> one-hot 0001 automatically.
+- `spu_lsu_ldst_pckt_d1`, `fwdpkt_vld_unmasked`, the `lsu_pcx_qmon`
+  `entry*_full` flops: POR = 0.
+
+`cmp_top_env.v` keeps only the CTU clock-control un-poison forces and the
+CPX stimulus injection.

@@ -1,0 +1,26 @@
+   148720 cells
+     3947   $scopeinfo
+      994   ALU
+     8587   DFF
+        1   DFFCE
+       85   DFFN
+    23522   DFFRE
+      186   DFFSE
+        1   GND
+        2   IBUF
+     5482   LUT1
+     6018   LUT2
+    31627   LUT3
+    47741   LUT4
+    16313   MUX2_LUT5
+     1715   MUX2_LUT6
+      655   MUX2_LUT7
+      225   MUX2_LUT8
+        6   OBUF
+     1568   RAM16SDP4
+       32   SDPX9B
+       12   SPX9
+        1   VCC
+
+Warnings: 4270 unique messages, 4295 total
+End of script. Logfile hash: f291ef6903, time: 383.04s, user: 330.16s, system: 3.21s, MEM: 1609.42 MB peak

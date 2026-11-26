@@ -1322,7 +1322,9 @@ module sparc_ifu_ifqctl(/*AUTOARG*/
    assign dpcxthr_s  = req_pending_d ? dpcxthr_d :
 	                     ~oldreq_valid ? thr_s1    : 
 	                                     rr_gnt;
-   dff_s #(4) pcxthr_ff(.din (dpcxthr_s),
+   // POR = thread 0: the PCX thread-select flop has no reset and the
+   // downstream milreq mux needs a one-hot select from the first cycle.
+   dff_s #(4, 4'b0001) pcxthr_ff(.din (dpcxthr_s),
 		                  .clk (clk),
 		                  .q   (dpcxthr_d),
 		                  .se  (se), .si(), .so());

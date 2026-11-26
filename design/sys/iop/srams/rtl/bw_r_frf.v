@@ -61,16 +61,48 @@ module bw_r_frf (/*AUTOARG*/
    // SMT1: only T0's 32 even/odd FRF entries are live.
    reg [38:0]     regfile_high [31:0];
    reg [38:0]     regfile_low [31:0];
+`ifdef RTL_FF_POR_INIT
+   // Power-up model: the FRF is BRAM, which comes out of configuration
+   // zeroed.  Simulators would otherwise start it at x and the ECC check
+   // on an unwritten entry would poison the FFU control path.
+   integer frf_por_i;
+   initial begin
+      for (frf_por_i = 0; frf_por_i < 32; frf_por_i = frf_por_i + 1) begin
+         regfile_high[frf_por_i] <= 39'b0;
+         regfile_low[frf_por_i] <= 39'b0;
+      end
+   end
+`endif
+
  `define FRF_RD_HI regfile_index_high[5:1]
  `define FRF_RD_LO regfile_index_low[5:1]
 `else
    reg [38:0]     regfile_high [127:0];
    reg [38:0]     regfile_low [127:0];
+`ifdef RTL_FF_POR_INIT
+   // Power-up model: the FRF is BRAM, which comes out of configuration
+   // zeroed.  Simulators would otherwise start it at x and the ECC check
+   // on an unwritten entry would poison the FFU control path.
+   integer frf_por_i;
+   initial begin
+      for (frf_por_i = 0; frf_por_i < 128; frf_por_i = frf_por_i + 1) begin
+         regfile_high[frf_por_i] <= 39'b0;
+         regfile_low[frf_por_i] <= 39'b0;
+      end
+   end
+`endif
+
  `define FRF_RD_HI regfile_index_high[7:1]
  `define FRF_RD_LO regfile_index_low[7:1]
 `endif
 `else   
    reg [38:0]     regfile [255:0];
+`ifdef RTL_FF_POR_INIT
+   integer frf_por_i;
+   initial for (frf_por_i = 0; frf_por_i < 256; frf_por_i = frf_por_i + 1)
+      regfile[frf_por_i] <= 39'b0;
+`endif
+
 `endif
 
    reg            rst_tri_en_negedge;
@@ -111,6 +143,34 @@ module bw_r_frf (/*AUTOARG*/
                            .clk(rclk), .se(real_se), .si({si,cntl_scan_data[9:1]}), .so(cntl_scan_data[9:0]));
 
    // Read logic
+`ifdef RTL_FF_POR_INIT
+   // Simulation power-up model.  The registered port controls can still be x
+   // while the FFU's ECC feedback settles, and both the "read during write"
+   // term and the array index would then hand out an all-x word, which feeds
+   // straight back into rs2_ue_w2.  Configuration always presents defined
+   // controls, so treat x as 0 here: the read then returns the stored entry.
+   function f_def_bit;
+      input b;
+      begin f_def_bit = (b === 1'b1) ? 1'b1 : 1'b0; end
+   endfunction
+
+   wire        ren_s = f_def_bit(ren_d1);
+   wire        wen_s = f_def_bit(wen_d1[1]) | f_def_bit(wen_d1[0]);
+   wire [6:0]  adr_s = {f_def_bit(addr_d1[6]), f_def_bit(addr_d1[5]),
+                        f_def_bit(addr_d1[4]), f_def_bit(addr_d1[3]),
+                        f_def_bit(addr_d1[2]), f_def_bit(addr_d1[1]),
+                        f_def_bit(addr_d1[0])};
+
+`ifdef FPGA_SYN_FRF
+   assign read_data[77:0] = (~ren_s)? 78'b0 :
+                            (wen_s)?  78'b0 :
+                               {regfile_high[{adr_s,1'b1}],regfile_low[{adr_s,1'b0}]};
+`else
+   assign read_data[77:0] = (~ren_s)? 78'b0 :
+                            (wen_s)?  78'b0 :
+                               {regfile[{adr_s,1'b1}],regfile[{adr_s,1'b0}]};
+`endif
+`else
 `ifdef FPGA_SYN_FRF
    assign read_data[77:0] = (~ren_d1)?             78'b0: 
                             (wen_d1[1]|wen_d1[0])? {78{1'bx}}:
@@ -119,6 +179,7 @@ module bw_r_frf (/*AUTOARG*/
    assign read_data[77:0] = (~ren_d1)?             78'b0: 
                             (wen_d1[1]|wen_d1[0])? {78{1'bx}}:
                                {regfile[regfile_index_high],regfile[regfile_index_low]};
+`endif
 `endif
 
    

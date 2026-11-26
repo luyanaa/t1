@@ -19,7 +19,8 @@ import argparse
 import os
 import shlex
 
-from flist_common import DEFAULT_DEFINES, DEFAULT_INCDIRS, read_flist_files
+from flist_common import (
+    DEFAULT_DEFINES, DEFAULT_INCDIRS, check_sources, read_flist_files)
 
 
 def main():
@@ -51,11 +52,12 @@ def main():
     flist = args.flist
     if not os.path.isabs(flist):
         flist = os.path.join(root, flist)
-    files = read_flist_files(flist)
+    files = read_flist_files(flist, root=root)
     for extra in args.extra:
         if not os.path.isabs(extra):
             extra = os.path.join(root, extra)
         files.append(os.path.abspath(extra))
+    check_sources(files, "FPGA synthesis")
 
     defines = list(DEFAULT_DEFINES)
     if args.define:

@@ -9,6 +9,7 @@ so the three entry points cannot drift.
 
 import os
 import re
+import sys
 
 # Defines used by both the Gowin and LibreLane full-core flows.
 DEFAULT_DEFINES = [
@@ -77,11 +78,16 @@ def read_flist_entries(path, dv_root):
     return entries
 
 
-def read_flist_files(path):
+def read_flist_files(path, root=None):
     """Return the source paths from a .flist, skipping headers.
 
     Used by the synthesizer config generators, which only need Verilog
     sources (no incdir/define directives).
+
+    The entries in a Sun .flist are written relative to the tree root
+    (``design/...``, ``lib/...``), not to the .flist file itself.  Pass
+    ``root`` to resolve them; otherwise the caller must join them with the
+    root itself.
     """
     files = []
     with open(path, encoding="latin-1") as fh:
@@ -91,5 +97,22 @@ def read_flist_files(path):
                 continue
             if line.endswith(".h") or line.endswith(".vh"):
                 continue
-            files.append(line)
+            files.append(line if root is None else os.path.join(root, line))
     return files
+
+
+def check_sources(files, what):
+    """Fail loudly when a generated source list points at a missing file.
+
+    ``read_verilog`` in Yosys and the LibreLane file list both accept a
+    non-existent path without an error at parse time; the failure only
+    shows up much later as a missing module, which looks like an RTL
+    problem.  Catch it here, where the path was written.
+    """
+    missing = [f for f in files if not os.path.isfile(f)]
+    if missing:
+        for f in missing[:20]:
+            print("missing %s source: %s" % (what, f), file=sys.stderr)
+        raise SystemExit(
+            "%d of %d %s source files do not exist" % (
+                len(missing), len(files), what))

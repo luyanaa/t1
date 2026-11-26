@@ -21,6 +21,10 @@ SMT_DEFS := $(if $(filter 1,$(SMT)),-DSPARC_1THREAD,$(if $(filter 2,$(SMT)),-DSP
 FPU_DEFS := $(if $(filter 0,$(FPU)),-DSPARC_NO_FPU,)
 CONFIG_DEFS := $(SMT_DEFS) $(FPU_DEFS)
 CONFIG_NAMES := $(patsubst -D%,%,$(CONFIG_DEFS))
+# Simulation-only: flops model a defined power-up state (RTL_FF_POR_INIT in
+# swrvr_clib.v) so benches no longer need to force unreset thread-state
+# flops.  Never defined for synthesis.
+SIM_DEFS := -DRTL_FF_POR_INIT
 
 PYTHON ?= python3
 IVERILOG ?= iverilog
@@ -43,7 +47,7 @@ FPGA_PNR_FLAGS ?= --placer heap --no-tmdriv --freq 50 --timing-allow-fail
 FPGA_BUILD := $(BUILD)/fpga
 ASIC_DIR := $(ROOT)/port/asic
 
-.PHONY: all filelist icarus verilator yosys smoke smoke-verilator regress clean \
+.PHONY: all filelist icarus verilator yosys smoke smoke-verilator diag-smoke fpu-smoke fpu-unit regress clean \
 	fpga-flist fpga-sim fpga-synth fpga-pnr fpga-bitstream fpga fpga-smoke \
 	asic-smoke asic-config asic-synth \
 	playback playback-nop playback-simple_br playback-smoke \
@@ -95,7 +99,7 @@ yosys: filelist
 	cd $(ROOT) && $(YOSYS) -q -s $(BUILD)/core1_rtl.ys
 
 smoke: filelist
-	cd $(ROOT) && $(IVERILOG) -g2005 -s tb_core_smoke \
+	cd $(ROOT) && $(IVERILOG) -g2005 -s tb_core_smoke $(SIM_DEFS) \
 		-f $(BUILD)/core1_rtl.f \
 		design/sys/iop/rtl/iop_fpga.v \
 		port/tb/tb_core_smoke.v \
@@ -108,7 +112,7 @@ smoke: filelist
 	@echo "SMOKE PASS (Icarus)"
 
 smoke-verilator: filelist
-	cd $(ROOT) && $(VERILATOR) --binary --timing \
+	cd $(ROOT) && $(VERILATOR) --binary --timing $(SIM_DEFS) \
 		--language 1364-2001 -Wno-fatal \
 		--top-module tb_core_smoke --build-jobs $(JOBS) \
 		-CFLAGS "-O0" \
@@ -124,8 +128,73 @@ smoke-verilator: filelist
 	@cat $(BUILD)/smoke_verilator.log
 	@echo "SMOKE PASS (Verilator)"
 
-regress: smoke smoke-verilator
-	@echo "REGRESSION PASS (1 test, 2 simulators)"
+# Multi-thread boot smoke: every thread comes out of reset, asks the trap
+# handler for its thread id and reports a good trap.  Covers the per-TID
+# reset/IFILL/status paths that tb_core_smoke.v cannot reach (trap
+# handlers, th_fork, per-thread status collection).
+#   THREADS follows SMT so SMT=1 runs the single-thread variant.
+DIAG_SMoke := $(ROOT)/port/diag/mt_boot_smoke.s
+diag-smoke: $(BUILD)/tb_diag.vvp
+	$(PYTHON) $(ROOT)/port/scripts/build_diag.py $(DIAG_SMoke)
+	$(MAKE) -C $(ROOT)/port diag \
+		MEM=$$($(PYTHON) $(ROOT)/port/scripts/build_diag.py \
+			--mem-path-only $(DIAG_SMoke)) \
+		THREADS=$(if $(SMT),$(SMT),4)
+	@echo "DIAG PASS (mt_boot_smoke, $(if $(SMT),$(SMT),4) thread(s))"
+
+# ---------------------------------------------------------------
+# FPU smoke: tb_diag + the real shared FPU block
+# ---------------------------------------------------------------
+# Same harness as `diag`, but the testbench also instantiates
+# design/sys/iop/fpu/rtl/fpu.v (-DFPU_SMOKE) and routes the PCX request
+# types 5'h0a/5'h0b to it, so FP instructions really execute.  With FPU=0
+# the core sets fpen=0 and the same image takes FP_DISABLED instead.
+FPU_DIAG ?= $(ROOT)/port/diag/fpu_smoke.s
+
+$(BUILD)/tb_fpu.vvp: filelist $(ROOT)/port/tb/tb_diag.v
+	cd $(ROOT) && $(IVERILOG) -g2005 -s tb_diag $(SIM_DEFS) -DFPU_SMOKE \
+		-f $(BUILD)/core1_rtl.f \
+		design/sys/iop/rtl/iop_fpga.v \
+		port/tb/tb_diag.v \
+		-o $@
+
+fpu-smoke: $(BUILD)/tb_fpu.vvp
+	$(PYTHON) $(ROOT)/port/scripts/build_diag.py $(FPU_DIAG)
+	cd $(ROOT) && $(VVP) $(BUILD)/tb_fpu.vvp \
+		+memfile=$$($(PYTHON) $(ROOT)/port/scripts/build_diag.py \
+			--mem-path-only $(FPU_DIAG)) \
+		+threads=$(if $(SMT),$(SMT),4) $(FPU_PLUSARGS) \
+		> $(BUILD)/fpu_smoke.log 2>&1 || \
+		{ cat $(BUILD)/fpu_smoke.log; exit 1; }
+	@grep -q "DIAG PASS" $(BUILD)/fpu_smoke.log || \
+		{ echo "FPU SMOKE FAIL - see $(BUILD)/fpu_smoke.log"; exit 1; }
+	@echo "FPU SMOKE PASS"
+
+# ---------------------------------------------------------------
+# FPU block unit test: drives the real design/sys/iop/fpu/rtl/fpu.v
+# over its PCX/CPX ports with the packets the core's FFU/LSU produce.
+# Needs the FPU in the netlist, so it is only meaningful with FPU=1.
+# ---------------------------------------------------------------
+$(BUILD)/tb_fpu_unit.vvp: filelist $(ROOT)/port/tb/tb_fpu_unit.v
+	cd $(ROOT) && $(IVERILOG) -g2005 -s tb_fpu_unit $(SIM_DEFS) \
+		-f $(BUILD)/core1_rtl.f \
+		port/tb/tb_fpu_unit.v \
+		-o $@
+
+fpu-unit: $(BUILD)/tb_fpu_unit.vvp
+	cd $(ROOT) && $(VVP) $(BUILD)/tb_fpu_unit.vvp \
+		> $(BUILD)/fpu_unit.log 2>&1 || { cat $(BUILD)/fpu_unit.log; exit 1; }
+	@grep -q "FPU-UNIT PASS" $(BUILD)/fpu_unit.log || \
+		{ cat $(BUILD)/fpu_unit.log; exit 1; }
+	@tail -2 $(BUILD)/fpu_unit.log
+
+ifeq ($(FPU),1)
+regress: smoke smoke-verilator diag-smoke fpu-unit
+	@echo "REGRESSION PASS (smoke x2 simulators + multi-thread diag + FPU unit)"
+else
+regress: smoke smoke-verilator diag-smoke
+	@echo "REGRESSION PASS (smoke x2 simulators + multi-thread diag)"
+endif
 
 # ---------------------------------------------------------------
 # Generic diag testbench (image-driven L2 responder)
@@ -134,10 +203,13 @@ regress: smoke smoke-verilator
 # and watches thread_status_mem for the diag's PASS/FAIL result.
 #   make -C port diag MEM=port/build/diag/tlu_tick_read_1.mem
 #   make -C port diag-run DIAG=verif/diag/assembly/TLU/direct/tlu_tick_read_1.s
+# THREADS selects how many threads the testbench resets (1..SMT width);
+# diags that th_fork onto several threads need THREADS=4.
 MEM ?= port/build/diag/tlu_tick_read_1.mem
+THREADS ?= 1
 
 $(BUILD)/tb_diag.vvp: filelist $(ROOT)/port/tb/tb_diag.v
-	cd $(ROOT) && $(IVERILOG) -g2005 -s tb_diag \
+	cd $(ROOT) && $(IVERILOG) -g2005 -s tb_diag $(SIM_DEFS) \
 		-f $(BUILD)/core1_rtl.f \
 		design/sys/iop/rtl/iop_fpga.v \
 		port/tb/tb_diag.v \
@@ -145,6 +217,7 @@ $(BUILD)/tb_diag.vvp: filelist $(ROOT)/port/tb/tb_diag.v
 
 diag: $(BUILD)/tb_diag.vvp
 	cd $(ROOT) && $(VVP) $(BUILD)/tb_diag.vvp +memfile=$(MEM) \
+		+threads=$(THREADS) \
 		> $(BUILD)/diag_sim.log 2>&1 || \
 		{ cat $(BUILD)/diag_sim.log; exit 1; }
 	@cat $(BUILD)/diag_sim.log
@@ -177,7 +250,7 @@ $(PLAYBACK_STIM_DIR)/.extracted: $(ROOT)/port/stim/thread1_mini_stim.tar.gz
 	@touch $@
 
 $(BUILD)/playback.vvp: filelist $(ROOT)/port/tb/tb_playback.v
-	cd $(ROOT) && $(IVERILOG) -g2005 -s tb_playback \
+	cd $(ROOT) && $(IVERILOG) -g2005 -s tb_playback $(SIM_DEFS) \
 		-f $(BUILD)/core1_rtl.f \
 		port/tb/playback_driver_oss.v \
 		port/tb/tb_playback.v \
@@ -217,7 +290,7 @@ fpga-flist:
 		-o $(FPGA_BUILD)/t1_fpga.ys
 
 fpga-sim: filelist
-	cd $(ROOT) && $(IVERILOG) -g2005 -s tb_fpga_top \
+	cd $(ROOT) && $(IVERILOG) -g2005 -s tb_fpga_top $(SIM_DEFS) \
 		-f $(BUILD)/core1_rtl.f \
 		design/sys/iop/rtl/iop_fpga.v \
 		port/fpga/t1_fpga_top.v \
@@ -323,7 +396,7 @@ $(BUILD)/dispmon_vpi.vpi: $(ROOT)/port/pli/dispmon_vpi.c
 $(BUILD)/cmp_top.vvp: filelist $(ROOT)/$(CMPTB_SRC) $(ROOT)/$(CMP_DRAM_F) \
 		$(BUILD)/dispmon_vpi.vpi \
 		$(wildcard $(ROOT)/port/env/dram/*.v)
-	cd $(ROOT) && $(IVERILOG) -g2005 -s cmp_top \
+	cd $(ROOT) && $(IVERILOG) -g2005 -s cmp_top $(SIM_DEFS) \
 		-f $(BUILD)/core1_rtl.f \
 		$(CMPTB_SRC) -f $(CMP_DRAM_F) \
 		-DIVPORT_NO_MON $(DIMM_DEFS) \
@@ -388,7 +461,7 @@ $(BUILD)/cmp_top_env.vvp: filelist $(ROOT)/$(ENV_SRC) $(ROOT)/$(CMP_DRAM_F) \
 		$(ENV_SRC) -f $(CMP_DRAM_F) $(SJM_RTL) \
 		port/env/mem_backdoor.v \
 		port/env/monitor_min.v \
-		-DIVPORT_NO_MON $(DIMM_DEFS) $(IOBDG_DEFS) \
+		-DIVPORT_NO_MON $(DIMM_DEFS) $(IOBDG_DEFS) -DRTL_L2_POR_INIT -DRTL_ANY_POR_INIT \
 		-L $(ROOT)/port/pli/sjm -m sjm \
 		-o $(BUILD)/cmp_top_env.vvp \
 		-I. -Iport/tb -Iport/env -Iport/env/dram -Iverif/env/cmp

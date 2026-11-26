@@ -16,7 +16,7 @@
 !                          (.vectors is 0x200 slots x 0x20 = 0x4000).
 !   VA/PA 0x10000000     : diag .text
 !   VA/PA 0x10001000     : diag .data/.bss
-!   VA/PA 0x10020000     : thread_status_mem (one-hot PASS/FAIL word)
+!   VA/PA 0xfffff0020000 : thread_status_mem (one-hot PASS/FAIL word)
 !
 ! Provided `ta` services (trap numbers N from defines.h, tt = 0x100+N).
 ! Verified working end-to-end on tb_diag, DIAG PASS on:
@@ -390,6 +390,10 @@ proc_good_trap:
 
 	SETXVA thread_status_mem, %g1, %g2
 	stx %g3, [%g2]		! Zero in upper 32 bits indicates success
+	! Drain the store buffer before stopping: the LSU drops a still
+	! buffered store when the thread stops, and the testbench only sees
+	! the status word if it reaches L2.
+	membar	#Sync
 
 1:	rd %asr26, %g1
 	wr %g1, 0x1, %asr26	! Halt
@@ -411,6 +415,7 @@ proc_bad_trap:
 	or %g3, %g4, %g4	! Fail status in top 32 bits, TID mask
 	SETXVA thread_status_mem, %g1, %g2
 	stx %g4, [%g2]
+	membar	#Sync
 
 2:	rd %asr26, %g1
 	wr %g1, 0x1, %asr26	! Halt

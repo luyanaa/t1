@@ -2901,7 +2901,8 @@ module sparc_ifu_fcl(/*AUTOARG*/
    // would otherwise power up X (the full-chip bench forces it today).
    assign thr_f_flop = 4'b0001;
 `else
-   dff_s #(4) thrf_reg(.din   (thr_bf),     // thr_f may be 4'b0000 but it has 
+   // POR = 4'b0001 (thread 0 selected), per the RTL comment above.
+   dff_s #(4, 4'b0001) thrf_reg(.din   (thr_bf),     // thr_f may be 4'b0000 but it has 
 		                 .clk   (clk),        // to reset to 4'b0001
 		                 .q     (thr_f_flop),
 		                 .se    (se),  .si(), .so());

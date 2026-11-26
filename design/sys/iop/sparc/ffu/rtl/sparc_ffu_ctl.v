@@ -555,6 +555,24 @@ module sparc_ffu_ctl (/*AUTOARG*/
    wire   ue_trap_w3;
    wire [1:0] 	previous_ce;
    wire         previous_ue;
+
+`ifdef RTL_FF_POR_INIT
+   // Simulation definedness guards.  The FRF hands out an all-x word on the
+   // very first access of a register (x data + x ecc), which makes the ECC
+   // status x for one cycle.  An x on the *accumulated* status must not kill
+   // an otherwise valid op - treat x as "no error".
+   wire [1:0]  previous_ce_s  = (previous_ce[1:0] === 2'bxx) ? 2'b00 : previous_ce[1:0];
+   wire        previous_ue_s  = (previous_ue === 1'bx) ? 1'b0 : previous_ue;
+   wire        rolled_back_s  = (rolled_back === 1'bx) ? 1'b0 : rolled_back;
+   wire [1:0]  ce_s           = (ce[1:0] === 2'bxx) ? 2'b00 : ce[1:0];
+   wire [1:0]  err_det_s      = (error_detected[1:0] === 2'bxx) ? 2'b00 : error_detected[1:0];
+`else
+   wire [1:0]  previous_ce_s  = previous_ce;
+   wire        previous_ue_s  = previous_ue;
+   wire        rolled_back_s  = rolled_back;
+   wire [1:0]  ce_s           = ce;
+   wire [1:0]  err_det_s      = error_detected;
+`endif
    wire [1:0] 	ecc_wen_next;
    wire [1:0] 	ecc_wen_gen_next;
    wire [1:0] 	ecc_wen_gen;
@@ -1161,8 +1179,18 @@ module sparc_ffu_ctl (/*AUTOARG*/
    //  registers.
    assign  flip_lsu = (dest_single & ~rd[0]);// single with even rd
 
-   assign  ctl_dp_noflip_lsu = ld_ret & ~flip_lsu;
-   assign  ctl_dp_flip_lsu = ld_ret & flip_lsu;
+`ifdef RTL_FF_POR_INIT
+   // Simulation definedness: dest_single / rd can still be x while the first
+   // load is in flight; an x here would make both mux legs of the load data
+   // path x and the register file would be written with an x word.  Treat x
+   // as "no flip", which is the alignment for a double load.
+   wire flip_lsu_s = (flip_lsu === 1'bx) ? 1'b0 : flip_lsu;
+`else
+   wire flip_lsu_s = flip_lsu;
+`endif
+
+   assign  ctl_dp_noflip_lsu = ld_ret & ~flip_lsu_s;
+   assign  ctl_dp_flip_lsu = ld_ret & flip_lsu_s;
    assign  ctl_dp_noflip_fpu = ~ld_ret & ~flip_fpu & is_fpu_result & ~cpx_fcmp_d1;
    assign  ctl_dp_flip_fpu = ~ld_ret & ~ctl_dp_noflip_fpu;
    
@@ -1708,9 +1736,9 @@ module sparc_ffu_ctl (/*AUTOARG*/
    dff_s rollback_m2w(.din(rollback_fst_m), .clk(clk), .q(rollback_fst_w), .se(se), .si(), .so());
    dff_s #(2) possible_ue_dff(.din(possible_ue[1:0]), .clk(clk), .q(prev_poss_ue[1:0]),
                             .se(se), .si(), .so());
-   dff_s #(2) ce_dff(.din(ce[1:0]), .clk(clk), .q(previous_ce[1:0]),
+   dff_s #(2) ce_dff(.din(ce_s[1:0]), .clk(clk), .q(previous_ce[1:0]),
                             .se(se), .si(), .so());
-   dff_s #(2) err_det_dff(.din(error_detected[1:0]), .clk(clk), .q(prev_err_detected[1:0]),
+   dff_s #(2) err_det_dff(.din(err_det_s[1:0]), .clk(clk), .q(prev_err_detected[1:0]),
                             .se(se), .si(), .so());
    assign previous_ue = |(prev_err_detected[1:0] & prev_poss_ue[1:0]);
    
@@ -1732,11 +1760,11 @@ module sparc_ffu_ctl (/*AUTOARG*/
    dff_s disable_ce_m2w(.din(disable_ce_m), .clk(clk), .q(disable_ce_w),
                       .se(se), .si(), .so());
    assign fst_ce_w = rollback_fst_w & ~kill_eccchk_w;
-   assign fst_ue_w = fst_w & (previous_ue | (disable_ce_w & |(previous_ce[1:0])))  & ~kill_eccchk_w;
-   assign rollback_rs2_w2 = (ren_rs2_w2 & ~flush_w2 & |previous_ce[1:0] 
-                             & ~rolled_back);
-   assign rs2_ce_w2 = ren_rs2_w2 & |previous_ce[1:0] & ~rolled_back & ~previous_ue;
-   assign rs2_ue_w2 = ren_rs2_w2 & (previous_ue | (rolled_back & |previous_ce[1:0]));
+   assign fst_ue_w = fst_w & (previous_ue_s | (disable_ce_w & |(previous_ce_s[1:0])))  & ~kill_eccchk_w;
+   assign rollback_rs2_w2 = (ren_rs2_w2 & ~flush_w2 & |previous_ce_s[1:0]
+                             & ~rolled_back_s);
+   assign rs2_ce_w2 = ren_rs2_w2 & |previous_ce_s[1:0] & ~rolled_back_s & ~previous_ue_s;
+   assign rs2_ue_w2 = ren_rs2_w2 & (previous_ue_s | (rolled_back_s & |previous_ce_s[1:0]));
    // must check for flush because eccchk doesn't do this
    assign rs2_fst_ce_w2_vld = (rs2_ce_w2 | fst_ce_w2) & ~flush_w2;
    assign rs2_fst_ue_w2_vld = (rs2_ue_w2 | fst_ue_w2) & ~flush_w2;
@@ -1749,10 +1777,10 @@ module sparc_ffu_ctl (/*AUTOARG*/
    dff_s ue_w22w3(.din(rs2_fst_ue_w2_vld), .clk(clk), .q(rs2_fst_ue_w3),
                .se(se), .si(), .so());
 
-   assign rs1_ce_w3 = ren_rs1_w3 & |previous_ce[1:0] & ~previous_ue & ~rolled_back;
+   assign rs1_ce_w3 = ren_rs1_w3 & |previous_ce_s[1:0] & ~previous_ue_s & ~rolled_back_s;
    assign rollback_rs1_w3 = rs1_ce_w3 & ~ue_trap_w3;
    assign ce_w3 = (rs1_ce_w3 | rs2_fst_ce_w3);
-   assign ue_w3 = (ren_rs1_w3 & (previous_ue | (rolled_back & |previous_ce[1:0]))) | rs2_fst_ue_w3;
+   assign ue_w3 = (ren_rs1_w3 & (previous_ue_s | (rolled_back_s & |previous_ce_s[1:0]))) | rs2_fst_ue_w3;
 
    assign ffu_ifu_ecc_ce_w2 = (ce_w3 | bst_ce_c4);
    assign ffu_ifu_ecc_ue_w2 = (ue_w3 | bst_ue_c4);

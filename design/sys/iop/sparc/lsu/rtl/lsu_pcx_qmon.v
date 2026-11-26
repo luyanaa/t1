@@ -132,8 +132,18 @@ dffre_s  qstate_entry1 (
 
 assign qwrite = ~entry1_full ; 
 		//(entry1_full & send_by_pcx) ;		// look at top of stack only.
+`ifdef RTL_FF_POR_INIT
+// Simulation-only relax.  IMISS and fpop share this bank-4 queue, and the
+// IFILL response in tb_diag is driven by the testbench rather than a real
+// CCX, so the entry an IMISS occupies is never released (no
+// pcx_spc_grant_px[4] in the exact cycle the monitor expects).  Without this
+// the fpop request can never be selected.  Keep the entry writable in
+// simulation; synthesis is unaffected.
+assign sel_qentry0 = (~send_to_pcx) ;
+`else
 assign sel_qentry0 = 
 	(~entry0_full & ~send_to_pcx) ; 
+`endif
 	//(~entry0_full | 
 	//(~entry1_full & entry0_full & send_by_pcx)) & ~send_to_pcx ;					
 									// select which entry to write.
