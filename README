@@ -571,9 +571,17 @@ The original documentation is under `doc/`:
   - FPGA area baseline for both configurations is recorded in
     `port/AREA.md` (SMT=1/FPU=0 is 83134 cells vs 148720 for the default
     4-thread FPU build, i.e. 35% vs 70% LUT utilisation on GW5AST-138).
-  - Remaining: retry full-core PnR on the reduced build, replace inferred
-    memories with ASIC SRAM macros, partition the ASIC design, and add
-    external memory/interrupt/console support.
+  - The shared FPU has a block-level test (`make -C port fpu-unit`): five
+    bit-exact operations including a mantissa-LSB case, run as part of
+    `regress`.  The core-level path (FP instruction retire -> FFU packet ->
+    PCX grant -> FPU compute -> CPX return -> core takes it) is measured in
+    `tb_diag` with `+FPU_SMOKE`; see `port/FPU.md` for the acceptance and the
+    remaining gap.
+  - Remaining: FP loads need the D-cache/L2 fill path (the stripped bench has
+    no D-cache tag/way model, and the full-chip bench's L2 bank control state
+    comes up X - both recorded in `port/FPU.md`), retry full-core PnR on the
+    reduced build, replace inferred memories with ASIC SRAM macros, partition
+    the ASIC design, and add external memory/interrupt/console support.
 
 ## License
 

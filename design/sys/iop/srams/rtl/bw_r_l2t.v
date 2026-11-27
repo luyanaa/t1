@@ -727,6 +727,19 @@ reg		wayselect0; // Registering wayselect signal
 reg		wayselect1; // Registering wayselect signal
 
 reg	[27:0]	temp_tag_way0 ; // Registering tag read out data 
+`ifdef RTL_L2_POR_INIT
+// Simulation-only POR clear of the registered tag-read outputs, same reason
+// as the arrays above: without it the first L2 access sees X in the way
+// compare and the data-array way select is X.
+initial begin
+  wayselect0    = 1'b0;
+  wayselect1    = 1'b0;
+  temp_tag_way0 = 28'b0;
+  temp_tag_way1 = 28'b0;
+  tag_way0      = 28'b0;
+  tag_way1      = 28'b0;
+end
+`endif
 reg	[27:0]	temp_tag_way1 ; // Registering tag read out data
 // !!! Registering all tag outputs including wayselect as it is how implemented in design !!!
 

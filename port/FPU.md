@@ -141,7 +141,40 @@ Simulation-only initialisation added for the full-chip build:
 * `sctag_tagdp_ctl.v`: `ff_lru_way_c3`, `ff_lru_way_c3_1`, `ff_valid_c3`
   switched to `dff_s_por0`.
 
-Status: the array init alone does not clear `L2_DATA_ERR`; the way select is
-still X, so the L2 valid/LRU/arbitration control state needs its own
-bring-up sweep.  Until that is done the full-chip route cannot reach the FP
-instructions, and the core-level `fpu-smoke` remains blocked.
+Status: parked.  The tag/data array clears remove the *first-access* X, but
+the way select stays unknown because the L2 bank control state itself comes
+up X.  Traced with two bench probes (`L2DBG` in `sctag_tagctl.v`, `L2ARB` in
+`sctag_arbctl.v`, both behind `RTL_L2_POR_INIT`): the data-array way select is
+fed by `temp_way_sel_c2` (registered tag compare) and
+`arbctl_waysel_inst_vld_c2`, and the bank arbitration selects (`mbsel_px2`)
+were X until the four banks' `sctag_arbctl.reset_flop.q` were forced.  After
+that force `mb` is defined but `iqsel_px2` / `iq_arbctl_vbit_px2` remain X:
+the PCX request valid arriving at the bank is itself unknown, i.e. the ccx
+grant path, not the sctag itself.  `cmp_arst_l` was traced to
+`ctu_clsp_cmpgif.v:136` (`assign cmp_arst_l = io_pwron_rst_l`), which comes
+from the `bw_io_cmos_pad` pad cell and has no defined value in the port
+build; forcing that net did not clear the remaining X either.
+
+Acceptance for this round (what the FPU work is signed off against):
+
+* `make -C port fpu-unit SMT=4 FPU=1` - block-level FPU, five bit-exact
+  operations (add/sub/mul/div plus a mantissa-LSB case), PASS.
+* Core-level FP issue path, measured end to end in `tb_diag` with `FPU_SMOKE`:
+  `faddd` retires, the FFU builds the `fpop1`/`fpop2` packets, the LSU grants
+  the PCX slot, the FPU receives the paired packets and computes, the CPX
+  `FP_RET` packet comes back and the core takes it (`FPSEND` -> `F_RET` ->
+  `fp_cq=0`).
+* Integer `stx`/`ldx` round trip in the same bench: `DIAG PASS`.
+
+Known gaps (follow-ups, in order):
+
+1. FP loads cannot fill the FRF.  `lsu_ffu_ld_data` is `align_byte`, fed from
+   `dcache_rdata_wb`, and `lsu_dcache_wr_vld_e` is gated by
+   `~lsu_ncache_ld_e`.  With the D-cache disabled every load is non-cacheable
+   and the fill never happens; with it enabled the stripped bench has no
+   D-cache tag/way model and the first `ldd` wedges.
+2. Full-chip L2 bring-up (see the section above): the bank control state
+   comes up X, so the first cacheable store never selects a way.  This is the
+   route that would make FP loads work, and it is the next piece of work.
+3. `fpu_smoke` is therefore not wired into `regress`; `regress` covers smoke
+   (Icarus + Verilator), the multi-thread diag and `fpu-unit`.
