@@ -1,5 +1,8 @@
 `timescale 1ps/1ps
 
+// PCX/CPX field positions and encodings come from the chip header.
+`include "iop.h"
+
 // Generic OpenSPARC T1 diag testbench (per-thread version).
 //
 // Unlike tb_core_smoke.v (hard-coded image, pass = observe a second IMISS),
@@ -24,13 +27,13 @@
 // only runs thread 0 is started with +threads=1.
 //
 // PCX/CPX protocol (field defs: design/sys/iop/include/iop.h):
-//   PCX IMISS_RQ (5'b10000) -> two CPX IFILL_RET (4'b0001) 16B halves
-//   PCX LOAD_RQ  (5'b00000) -> CPX LOAD_RET (4'b0000), 64-bit word
-//   PCX STORE_RQ (5'b00001) -> write mem, then CPX ST_ACK (4'b0100)
-//   PCX STQ_RQ   (5'b00111) -> write mem, then CPX ST_ACK
+//   PCX RQ_IMISS (5'b10000) -> two CPX RET_IFILL (4'b0001) 16B halves
+//   PCX RQ_LOAD  (5'b00000) -> CPX RET_LOAD (4'b0000), 64-bit word
+//   PCX RQ_STORE (5'b00001) -> write mem, then CPX RET_STACK (4'b0100)
+//   PCX RQ_STQ   (5'b00111) -> write mem, then CPX RET_STACK
 //   other types  -> logged, no response
 //
-// PASS/FAIL: a STORE_RQ to PA thread_status_mem (0xfff0020000) carries a
+// PASS/FAIL: a RQ_STORE to PA thread_status_mem (0xfff0020000) carries a
 // one-hot thread result word; upper 32 bits 0 => good_trap (pass),
 // nonzero (0xF) => bad_trap (fail).  Every active thread writes that
 // same word, so the scoreboard keeps one entry per TID and only decides
@@ -48,16 +51,17 @@ module tb_diag;
     // 40-bit PA 0xfff0020000 in the RED IO window)
     localparam [39:0] STATUS_MEM_PA = 40'hff_f002_0000;
 
-    // PCX request types (iop.h)
-    localparam [4:0] LOAD_RQ  = 5'b00000;
-    localparam [4:0] STORE_RQ = 5'b00001;
-    localparam [4:0] STQ_RQ   = 5'b00111;
-    localparam [4:0] IMISS_RQ = 5'b10000;
-
-    // CPX return types (iop.h)
-    localparam [3:0] LOAD_RET  = 4'b0000;
-    localparam [3:0] IFILL_RET = 4'b0001;
-    localparam [3:0] ST_ACK    = 4'b0100;
+    // PCX request / CPX return encodings.  Field positions come from iop.h
+    // (CPX_*, PCX_*); the encodings stay local so the bench does not depend
+    // on the chip header's value macros in this compile context.
+    localparam [4:0] RQ_LOAD  = 5'b00000;
+    localparam [4:0] RQ_STORE = 5'b00001;
+    localparam [4:0] RQ_STQ   = 5'b00111;
+    localparam [4:0] RQ_IMISS = 5'b10000;
+    localparam [3:0] RET_LOAD  = 4'b0000;
+    localparam [3:0] RET_IFILL = 4'b0001;
+    localparam [3:0] RET_STACK = 4'b0100;
+    localparam [3:0] RET_INT   = 4'b0111;
 
     // PCX size encodings
     localparam [2:0] SZ_8B  = 3'b011;
@@ -466,11 +470,11 @@ module tb_diag;
         input [1:0]   tid;
         input [127:0] data;
         begin
-            ifill_pkt          = 145'b0;
-            ifill_pkt[144]     = 1'b1;
-            ifill_pkt[143:140] = IFILL_RET;
-            ifill_pkt[135:134] = tid;
-            ifill_pkt[127:0]   = data;
+            ifill_pkt                        = 145'b0;
+            ifill_pkt[`CPX_VLD]              = 1'b1;
+            ifill_pkt[`CPX_RQ_HI:`CPX_RQ_LO] = RET_IFILL;
+            ifill_pkt[`CPX_TH_HI:`CPX_TH_LO] = tid;
+            ifill_pkt[127:0]                 = data;
         end
     endfunction
 
@@ -478,11 +482,11 @@ module tb_diag;
         input [1:0]  tid;
         input [63:0] data;
         begin
-            load_pkt          = 145'b0;
-            load_pkt[144]     = 1'b1;
-            load_pkt[143:140] = LOAD_RET;
-            load_pkt[135:134] = tid;
-            load_pkt[63:0]    = data;
+            load_pkt                        = 145'b0;
+            load_pkt[`CPX_VLD]              = 1'b1;
+            load_pkt[`CPX_RQ_HI:`CPX_RQ_LO] = RET_LOAD;
+            load_pkt[`CPX_TH_HI:`CPX_TH_LO] = tid;
+            load_pkt[63:0]                  = data;
         end
     endfunction
 
@@ -490,15 +494,15 @@ module tb_diag;
         input [1:0] tid;
         input [1:0] pktid;
         begin
-            stack_pkt          = 145'b0;
-            stack_pkt[144]     = 1'b1;
-            stack_pkt[143:140] = ST_ACK;
-            stack_pkt[135:134] = tid;
-            stack_pkt[131:130] = pktid;   // STQ packet id
-            stack_pkt[125]     = 1'b0;    // not squashed
-            stack_pkt[124]     = 1'b0;    // no iinv
-            stack_pkt[123]     = 1'b0;    // no dinv
-            stack_pkt[120:118] = 3'b000;  // cpuid 0
+            stack_pkt                                    = 145'b0;
+            stack_pkt[`CPX_VLD]                          = 1'b1;
+            stack_pkt[`CPX_RQ_HI:`CPX_RQ_LO]             = RET_STACK;
+            stack_pkt[`CPX_TH_HI:`CPX_TH_LO]             = tid;
+            stack_pkt[`CPX_P_HI:`CPX_P_LO]               = pktid;
+            stack_pkt[125]                               = 1'b0;  // not squashed
+            stack_pkt[`CPX_IINV]                         = 1'b0;
+            stack_pkt[`CPX_DINV]                         = 1'b0;
+            stack_pkt[`CPX_CPUID_HI:`CPX_CPUID_LO]       = 3'b000;
         end
     endfunction
 
@@ -508,9 +512,9 @@ module tb_diag;
         input [1:0] tid;
         reg   [144:0] pkt;
         begin
-            pkt            = 145'b0;
-            pkt[144]       = 1'b1;
-            pkt[143:140]   = 4'b0111;   // INT_RET
+            pkt                         = 145'b0;
+            pkt[`CPX_VLD]               = 1'b1;
+            pkt[`CPX_RQ_HI:`CPX_RQ_LO]  = RET_INT;   // reset interrupt
             pkt[17:16]     = 2'b01;     // reset
             pkt[9:8]       = tid;
             cpx_rst_pkt    = pkt;
@@ -563,7 +567,7 @@ module tb_diag;
     reg [123:0] pcx_sig_d;
     reg     finished;
 
-    wire [4:0]  pcx_rq   = spc_pcx_data_pa[122:118];
+    wire [4:0]  pcx_rq   = spc_pcx_data_pa[`PCX_RQ_HI:`PCX_RQ_LO];
 `ifdef FPU_SMOKE
     // The FPU's two request packets (design/sys/iop/fpu/rtl/fpu_in.v:
     // fpu_in_ctl decodes 5'h0a as packet A and 5'h0b as packet B).
@@ -571,12 +575,12 @@ module tb_diag;
 `else
     wire is_fpop = 1'b0;
 `endif
-    wire [1:0]  pcx_tid  = spc_pcx_data_pa[113:112];
-    wire [1:0]  pcx_pid  = spc_pcx_data_pa[108:107];
-    wire [2:0]  pcx_sz   = spc_pcx_data_pa[106:104];
-    wire [39:0] pcx_addr = spc_pcx_data_pa[103:64];
+    wire [1:0]  pcx_tid  = spc_pcx_data_pa[`PCX_TH_HI:`PCX_TH_LO];
+    wire [1:0]  pcx_pid  = spc_pcx_data_pa[`PCX_P_HI:`PCX_P_LO];
+    wire [2:0]  pcx_sz   = spc_pcx_data_pa[`PCX_SZ_HI:`PCX_SZ_LO];
+    wire [39:0] pcx_addr = spc_pcx_data_pa[`PCX_AD_HI:`PCX_AD_LO];
     wire [39:0] pcx_line = {pcx_addr[39:5], 5'b0};
-    wire [63:0] pcx_data = spc_pcx_data_pa[63:0];
+    wire [63:0] pcx_data = spc_pcx_data_pa[`PCX_DA_HI:`PCX_DA_LO];
 
     // A packet is accepted on the cycle it is granted.  The grant is
     // registered from the request vector, so a back-to-back packet can
@@ -586,7 +590,7 @@ module tb_diag;
     // fpop requests are presented for a single cycle (the LSU retires the
     // entry as soon as it is selected), so they must be taken on that cycle
     // even though the grant lands one cycle later.
-    wire pcx_fire = reset_l & spc_pcx_data_pa[123] & pcx_new_sig &
+    wire pcx_fire = reset_l & spc_pcx_data_pa[`PCX_VLD] & pcx_new_sig &
                     ((|grant_px) | is_fpop);
 
 `ifdef FPU_SMOKE
@@ -608,7 +612,7 @@ module tb_diag;
 `endif
 
     // A store whose aligned-8 address equals STATUS_MEM_PA is the result write.
-    wire status_hit = pcx_fire && (pcx_rq == STORE_RQ || pcx_rq == STQ_RQ) &&
+    wire status_hit = pcx_fire && (pcx_rq == RQ_STORE || pcx_rq == RQ_STQ) &&
                       ((pcx_addr >> 3) == (STATUS_MEM_PA >> 3));
 
     reg [63:0] status_word [0:3];
@@ -678,9 +682,11 @@ module tb_diag;
         if (reset_l && (spc_pcx_req_pq !== 5'b0))
             $display("TB: REQ cyc=%0d pq=%b atom=%b vld=%b type=%b tid=%0d addr=%h data=%h grant=%b",
                      cycle_count, spc_pcx_req_pq, spc_pcx_atom_pq,
-                     spc_pcx_data_pa[123], spc_pcx_data_pa[122:118],
-                     spc_pcx_data_pa[113:112],
-                     spc_pcx_data_pa[103:64], spc_pcx_data_pa[63:0],
+                     spc_pcx_data_pa[`PCX_VLD],
+                     spc_pcx_data_pa[`PCX_RQ_HI:`PCX_RQ_LO],
+                     spc_pcx_data_pa[`PCX_TH_HI:`PCX_TH_LO],
+                     spc_pcx_data_pa[`PCX_AD_HI:`PCX_AD_LO],
+                     spc_pcx_data_pa[`PCX_DA_HI:`PCX_DA_LO],
                      grant_px);
 `endif
 
@@ -795,20 +801,20 @@ module tb_diag;
                     if (q_count != 0 && !boot_pend) begin
                         q_head  <= (q_head + 1) % MAXQ;
                         q_count <= q_count - 1;
-                        if (q_rq[q_head] == IMISS_RQ) begin
+                        if (q_rq[q_head] == RQ_IMISS) begin
                             rsp_addr  <= {q_addr[q_head][39:5], 5'b0};
                             rsp_tid   <= q_tid[q_head];
                             rsp_delay <= 8'd8;
                             rsp_state <= R_IDLY;
                         end
-                        else if (q_rq[q_head] == LOAD_RQ) begin
+                        else if (q_rq[q_head] == RQ_LOAD) begin
                             rsp_addr  <= q_addr[q_head];
                             rsp_tid   <= q_tid[q_head];
                             rsp_delay <= 8'd6;
                             rsp_state <= R_LDLY;
                         end
-                        else if (q_rq[q_head] == STORE_RQ ||
-                                 q_rq[q_head] == STQ_RQ) begin
+                        else if (q_rq[q_head] == RQ_STORE ||
+                                 q_rq[q_head] == RQ_STQ) begin
                             st_write(q_addr[q_head], q_sz[q_head],
                                      q_data[q_head]);
                             rsp_addr  <= q_addr[q_head];
@@ -849,18 +855,18 @@ module tb_diag;
             // ---- request logging ------------------------------------
             if (pcx_fire) begin
                 case (pcx_rq)
-                    IMISS_RQ: begin
+                    RQ_IMISS: begin
                         imiss_count <= imiss_count + 1;
                         $display("PCX IMISS #%0d t=%0t tid=%0d line=%h",
                                  imiss_count + 1, $time, pcx_tid, pcx_line);
                     end
-                    LOAD_RQ: begin
+                    RQ_LOAD: begin
                         load_count <= load_count + 1;
                         $display("PCX LOAD  #%0d t=%0t tid=%0d sz=%0d addr=%h",
                                  load_count + 1, $time, pcx_tid, pcx_sz,
                                  pcx_addr);
                     end
-                    STORE_RQ, STQ_RQ: begin
+                    RQ_STORE, RQ_STQ: begin
                         store_count <= store_count + 1;
                         $display("PCX STORE #%0d t=%0t tid=%0d sz=%0d addr=%h data=%h",
                                  store_count + 1, $time, pcx_tid, pcx_sz,

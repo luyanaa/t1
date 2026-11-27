@@ -1,3 +1,5 @@
+`include "iop.h"
+
 // =====================================================================
 // port/env/cmp_top_env.v - unified full-chip integration testbench.
 //
@@ -955,7 +957,7 @@ module cmp_top;
           st_pend = 1'b1;
           st_pa   = cmp_top.iop.pcx_iob_data_px2[103:64];
           st_data = cmp_top.iop.pcx_iob_data_px2[63:0];
-          st_thr  = cmp_top.iop.pcx_iob_data_px2[113:112];
+          st_thr  = cmp_top.iop.pcx_iob_data_px2[`PCX_TH_HI:`PCX_TH_LO];
           st_p    = cmp_top.iop.pcx_iob_data_px2[108:107];
         end
       end
@@ -985,9 +987,9 @@ module cmp_top;
     reg [144:0] pkt;
     begin
       pkt = 145'b0;
-      pkt[144]     = 1'b1;        // CPX_VLD
+      pkt[`CPX_VLD]= 1'b1;        // CPX_VLD
       pkt[143:140] = 4'b0100;     // ST_ACK
-      pkt[135:134] = thr;
+      pkt[`CPX_TH_HI:`CPX_TH_LO] = thr;
       pkt[131:130] = pkt_id;      // echo the store packet id
       force cmp_top.iop.sparc0.cpx_spc_data_cx2     = pkt;
       force cmp_top.iop.sparc0.cpx_spc_data_rdy_cx2 = 1'b1;
@@ -1038,7 +1040,7 @@ module cmp_top;
             cmp_top.iop.pcx_iob_data_px2[123]) begin
           rqtype  = cmp_top.iop.pcx_iob_data_px2[122:118];
           pc_pa   = cmp_top.iop.pcx_iob_data_px2[103:64];
-          req_thr = cmp_top.iop.pcx_iob_data_px2[113:112];
+          req_thr = cmp_top.iop.pcx_iob_data_px2[`PCX_TH_HI:`PCX_TH_LO];
           lane    = cmp_top.iop.pcx_iob_data_px2[66:65];  // PA[3:2]
 
           if (rqtype == 5'b10000) begin
@@ -1050,11 +1052,11 @@ module cmp_top;
           $display("[cmp_top_env] BOOT imiss at %0t pc=%h thr=%b lane=%0d",
                    $time, pc_pa, req_thr, lane);
           ifill_pkt = 145'b0;
-          ifill_pkt[144]       = 1'b1;        // CPX_VLD
+          ifill_pkt[`CPX_VLD]  = 1'b1;        // CPX_VLD
           ifill_pkt[143:140]   = 4'b0001;     // IFILL_RET
-          ifill_pkt[136]       = 1'b1;        // CPX_NC
-          ifill_pkt[135:134]   = req_thr;     // CPX_TH (echo)
-          ifill_pkt[130]       = 1'b1;        // CPX_IF4B (one 4B instr)
+          ifill_pkt[`CPX_NC]   = 1'b1;        // CPX_NC
+          ifill_pkt[`CPX_TH_HI:`CPX_TH_LO]   = req_thr;     // CPX_TH (echo)
+          ifill_pkt[`CPX_IF4B]= 1'b1;        // CPX_IF4B (one 4B instr)
           ifill_pkt[127:96]    = 32'h0100_0000;   // nop
           ifill_pkt[95:64]     = 32'h0100_0000;   // nop
           ifill_pkt[63:32]     = 32'h0100_0000;   // nop
@@ -1080,10 +1082,10 @@ module cmp_top;
            $display("[cmp_top_env] BOOT load at %0t pa=%h thr=%b",
                     $time, pc_pa, req_thr);
            ifill_pkt = 145'b0;
-           ifill_pkt[144]     = 1'b1;        // CPX_VLD
+           ifill_pkt[`CPX_VLD]= 1'b1;        // CPX_VLD
            ifill_pkt[143:140] = 4'b0000;     // LOAD_RET
-           ifill_pkt[136]     = 1'b1;        // CPX_NC
-           ifill_pkt[135:134] = req_thr;
+           ifill_pkt[`CPX_NC] = 1'b1;        // CPX_NC
+           ifill_pkt[`CPX_TH_HI:`CPX_TH_LO] = req_thr;
            ifill_pkt[63:0]    = boot_mem_read(pc_pa);
            force cmp_top.iop.sparc0.cpx_spc_data_cx2     = ifill_pkt;
            force cmp_top.iop.sparc0.cpx_spc_data_rdy_cx2 = 1'b1;

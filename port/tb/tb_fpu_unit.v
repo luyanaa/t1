@@ -24,6 +24,8 @@
 
 `timescale 1ps/1ps
 
+`include "iop.h"
+
 module tb_fpu_unit;
 
     localparam [123:0] ZERO_PKT = 124'b0;
@@ -71,7 +73,7 @@ module tb_fpu_unit;
                  $time, pcx_data[123], pcx_data[122:118],
                  fpu0.fpu_in.fpu_in_ctl.inq_we,
                  fpu0.fpu_out.dest_rdy, fpu0.fpu_out.add_dest_rdy,
-                 fpu0.fpu_out.fp_cpx_req_cq, fpu0.fpu_out.fp_cpx_data_ca[144],
+                 fpu0.fpu_out.fp_cpx_req_cq, fpu0.fpu_out.fp_cpx_data_ca[`CPX_VLD],
                  fpu0.fpu_in.fpu_in_ctl.fp_add_in);
     end
 
@@ -87,7 +89,7 @@ module tb_fpu_unit;
             fpop_pkt          = ZERO_PKT;
             fpop_pkt[123]     = 1'b1;
             fpop_pkt[122:118] = b_packet ? 5'h0b : 5'h0a;
-            fpop_pkt[113:112] = tid;
+            fpop_pkt[`PCX_TH_HI:`PCX_TH_LO] = tid;
             fpop_pkt[79:72]   = op;
             fpop_pkt[63:0]    = data;
         end
@@ -146,19 +148,19 @@ module tb_fpu_unit;
             else begin
                 @(posedge gclk);        // CA stage: packet is valid now
                 pkt = fp_cpx_data_ca;
-                if (!pkt[144]) begin
+                if (!pkt[`CPX_VLD]) begin
                     $display("FPU-UNIT FAIL: op %h return without CPX vld: %h",
                              what, pkt);
                     errors = errors + 1;
                 end
-                else if (pkt[143:140] != 4'b1000) begin
+                else if (pkt[`CPX_RQ_HI:`CPX_RQ_LO] != 4'b1000) begin
                     $display("FPU-UNIT FAIL: op %h return type %b (want FP_RET)",
-                             what, pkt[143:140]);
+                             what, pkt[`CPX_RQ_HI:`CPX_RQ_LO]);
                     errors = errors + 1;
                 end
-                else if (pkt[135:134] != exp_tid) begin
+                else if (pkt[`CPX_TH_HI:`CPX_TH_LO] != exp_tid) begin
                     $display("FPU-UNIT FAIL: op %h return tid %0d (want %0d)",
-                             what, pkt[135:134], exp_tid);
+                             what, pkt[`CPX_TH_HI:`CPX_TH_LO], exp_tid);
                     errors = errors + 1;
                 end
                 else if (pkt[63:0] !== exp) begin

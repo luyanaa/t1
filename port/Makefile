@@ -26,6 +26,10 @@ CONFIG_NAMES := $(patsubst -D%,%,$(CONFIG_DEFS))
 SIM_DEFS := -DRTL_FF_POR_INIT
 
 PYTHON ?= python3
+# Chip-level headers (iop.h, sparc_config.h) for the benches; iverilog only
+# honours +incdir for files listed inside a -f library, not for the sources
+# named on the command line.
+RTL_INC := -I$(ROOT)/design/sys/iop/include
 IVERILOG ?= iverilog
 VVP ?= vvp
 VERILATOR ?= verilator
@@ -85,7 +89,7 @@ filelist:
 		--yosys $(BUILD)/core1_rtl.ys
 
 icarus: filelist
-	cd $(ROOT) && $(IVERILOG) -g2005 -s $(TOP) \
+	cd $(ROOT) && $(IVERILOG) -g2005 $(RTL_INC) -s $(TOP) \
 		-f $(BUILD)/core1_rtl.f \
 		-o $(BUILD)/core1_rtl.vvp
 
@@ -98,7 +102,7 @@ yosys: filelist
 	cd $(ROOT) && $(YOSYS) -q -s $(BUILD)/core1_rtl.ys
 
 smoke: filelist
-	cd $(ROOT) && $(IVERILOG) -g2005 -s tb_core_smoke $(SIM_DEFS) \
+	cd $(ROOT) && $(IVERILOG) -g2005 $(RTL_INC) -s tb_core_smoke $(SIM_DEFS) \
 		-f $(BUILD)/core1_rtl.f \
 		design/sys/iop/rtl/iop_fpga.v \
 		port/tb/tb_core_smoke.v \
@@ -151,7 +155,7 @@ diag-smoke: $(BUILD)/tb_diag.vvp
 FPU_DIAG ?= $(ROOT)/port/diag/fpu_smoke.s
 
 $(BUILD)/tb_fpu.vvp: filelist $(ROOT)/port/tb/tb_diag.v
-	cd $(ROOT) && $(IVERILOG) -g2005 -s tb_diag $(SIM_DEFS) -DFPU_SMOKE \
+	cd $(ROOT) && $(IVERILOG) -g2005 $(RTL_INC) -s tb_diag $(SIM_DEFS) -DFPU_SMOKE \
 		-f $(BUILD)/core1_rtl.f \
 		design/sys/iop/rtl/iop_fpga.v \
 		port/tb/tb_diag.v \
@@ -175,7 +179,7 @@ fpu-smoke: $(BUILD)/tb_fpu.vvp
 # Needs the FPU in the netlist, so it is only meaningful with FPU=1.
 # ---------------------------------------------------------------
 $(BUILD)/tb_fpu_unit.vvp: filelist $(ROOT)/port/tb/tb_fpu_unit.v
-	cd $(ROOT) && $(IVERILOG) -g2005 -s tb_fpu_unit $(SIM_DEFS) \
+	cd $(ROOT) && $(IVERILOG) -g2005 $(RTL_INC) -s tb_fpu_unit $(SIM_DEFS) \
 		-f $(BUILD)/core1_rtl.f \
 		port/tb/tb_fpu_unit.v \
 		-o $@
@@ -208,7 +212,7 @@ MEM ?= port/build/diag/tlu_tick_read_1.mem
 THREADS ?= 1
 
 $(BUILD)/tb_diag.vvp: filelist $(ROOT)/port/tb/tb_diag.v
-	cd $(ROOT) && $(IVERILOG) -g2005 -s tb_diag $(SIM_DEFS) \
+	cd $(ROOT) && $(IVERILOG) -g2005 $(RTL_INC) -s tb_diag $(SIM_DEFS) \
 		-f $(BUILD)/core1_rtl.f \
 		design/sys/iop/rtl/iop_fpga.v \
 		port/tb/tb_diag.v \
@@ -249,7 +253,7 @@ $(PLAYBACK_STIM_DIR)/.extracted: $(ROOT)/port/stim/thread1_mini_stim.tar.gz
 	@touch $@
 
 $(BUILD)/playback.vvp: filelist $(ROOT)/port/tb/tb_playback.v
-	cd $(ROOT) && $(IVERILOG) -g2005 -s tb_playback $(SIM_DEFS) \
+	cd $(ROOT) && $(IVERILOG) -g2005 $(RTL_INC) -s tb_playback $(SIM_DEFS) \
 		-f $(BUILD)/core1_rtl.f \
 		port/tb/playback_driver_oss.v \
 		port/tb/tb_playback.v \
@@ -289,7 +293,7 @@ fpga-flist:
 		-o $(FPGA_BUILD)/t1_fpga.ys
 
 fpga-sim: filelist
-	cd $(ROOT) && $(IVERILOG) -g2005 -s tb_fpga_top $(SIM_DEFS) \
+	cd $(ROOT) && $(IVERILOG) -g2005 $(RTL_INC) -s tb_fpga_top $(SIM_DEFS) \
 		-f $(BUILD)/core1_rtl.f \
 		design/sys/iop/rtl/iop_fpga.v \
 		port/fpga/t1_fpga_top.v \
@@ -395,7 +399,7 @@ $(BUILD)/dispmon_vpi.vpi: $(ROOT)/port/pli/dispmon_vpi.c
 $(BUILD)/cmp_top.vvp: filelist $(ROOT)/$(CMPTB_SRC) $(ROOT)/$(CMP_DRAM_F) \
 		$(BUILD)/dispmon_vpi.vpi \
 		$(wildcard $(ROOT)/port/env/dram/*.v)
-	cd $(ROOT) && $(IVERILOG) -g2005 -s cmp_top $(SIM_DEFS) \
+	cd $(ROOT) && $(IVERILOG) -g2005 $(RTL_INC) -s cmp_top $(SIM_DEFS) \
 		-f $(BUILD)/core1_rtl.f \
 		$(CMPTB_SRC) -f $(CMP_DRAM_F) \
 		-DIVPORT_NO_MON $(DIMM_DEFS) \
@@ -455,7 +459,7 @@ $(ROOT)/port/pli/dispmon.vpi:
 
 $(BUILD)/cmp_top_env.vvp: filelist $(ROOT)/$(ENV_SRC) $(ROOT)/$(CMP_DRAM_F) \
 		$(ROOT)/$(SJM_RTL) $(ROOT)/port/pli/sjm/sjm.vpi
-	cd $(ROOT) && $(IVERILOG) -g2005 -s cmp_top \
+	cd $(ROOT) && $(IVERILOG) -g2005 $(RTL_INC) -s cmp_top \
 		-f $(BUILD)/core1_rtl.f \
 		$(ENV_SRC) -f $(CMP_DRAM_F) $(SJM_RTL) \
 		port/env/mem_backdoor.v \
@@ -472,7 +476,7 @@ cmp-env-build: $(BUILD)/cmp_top_env.vvp \
 # Unit check of the functional DIMM (dimm_mem.v): DDR-command-path
 # write + read-back against the local array.
 dimm-unit:
-	cd $(ROOT) && $(IVERILOG) -g2005 -s dimm_unit_tb \
+	cd $(ROOT) && $(IVERILOG) -g2005 $(RTL_INC) -s dimm_unit_tb \
 		port/env/dram/dimm_mem.v port/env/dram/dimm_unit_tb.v \
 		-o $(BUILD)/dimm_unit.vvp
 	cd $(ROOT) && $(VVP) $(BUILD)/dimm_unit.vvp | tee $(BUILD)/dimm_unit.log

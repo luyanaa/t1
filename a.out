@@ -1,0 +1,897 @@
+/*
+* ========== Copyright Header Begin ==========================================
+* 
+* OpenSPARC T1 Processor File: iop.h
+* Copyright (c) 2006 Sun Microsystems, Inc.  All Rights Reserved.
+* DO NOT ALTER OR REMOVE COPYRIGHT NOTICES.
+* 
+* The above named program is free software; you can redistribute it and/or
+* modify it under the terms of the GNU General Public
+* License version 2 as published by the Free Software Foundation.
+* 
+* The above named program is distributed in the hope that it will be 
+* useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+* General Public License for more details.
+* 
+* You should have received a copy of the GNU General Public
+* License along with this work; if not, write to the Free Software
+* Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA.
+* 
+* ========== Copyright Header End ============================================
+*/
+/*
+ * OpenSPARC T1 configuration macros.
+ *
+ * These are compile-time configuration switches for the port.  They are
+ * intentionally Verilog-2001 `ifdef/`ifndef macros (not SystemVerilog
+ * `if) so the original RTL can still be parsed as Verilog-2001.
+ *
+ * SMT selection:
+ *   -DSPARC_1THREAD  : one thread per core (SMT1)
+ *   -DSPARC_2THREAD  : two threads per core (SMT2)
+ *   (none)           : four threads per core (SMT4, default)
+ *
+ * FPU selection:
+ *   -DSPARC_NO_FPU   : no shared FPU; FP instructions take FP_DISABLED
+ *   (none)           : FPU enabled (default)
+ */
+
+
+
+
+// SMT default is SMT4.
+
+ 
+  
+   
+  
+ 
+
+
+
+
+
+ 
+
+
+  
+ 
+
+
+// The Sun RTL already uses FPGA_SYN_1THREAD for its single-thread guards.
+// Keep it as an alias so both names select the same path.
+
+
+
+
+
+
+
+
+
+
+
+
+// TID remains 2 bits for PCX/CPX packet compatibility; SMT1/SMT2 use TID 0/1.
+
+
+ // SPARC_CONFIG_H
+//-*- verilog -*-
+////////////////////////////////////////////////////////////////////////
+/*
+//
+//  Description:	Global header file that contain definitions that 
+//                      are common/shared at the IOP chip level
+*/
+////////////////////////////////////////////////////////////////////////
+
+
+// Address Map Defines
+// ===================
+
+
+
+
+// CMP space
+
+
+
+// IOP space
+
+
+
+
+                               //`define ENET_ING_CSR     8'h84
+                               //`define ENET_EGR_CMD_CSR 8'h85
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// L2 space
+
+
+
+// More IOP space
+
+
+
+
+
+//Cache Crossbar Width and Field Defines
+//======================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//bits 133:128 are shared by different fields
+//for different packet types.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//End cache crossbar defines
+
+
+// Number of COS supported by EECU 
+
+
+
+// 
+// BSC bus sizes
+// =============
+//
+
+// General
+
+
+
+
+// CTags
+
+
+
+
+
+
+
+
+
+
+
+
+
+// reinstated temporarily
+
+
+
+
+// CoS
+
+
+
+
+
+
+// L2$ Bank
+
+
+
+// L2$ Req
+
+
+
+
+
+
+
+
+
+
+
+
+
+// L2$ Ack
+
+
+
+
+
+
+
+
+// Enet Egress Command Unit
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// Enet Egress Packet Unit
+
+
+
+
+
+
+
+
+
+
+
+
+
+// This is cleaved in between Egress Datapath Ack's
+
+
+
+
+
+
+
+
+// Enet Egress Datapath
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// In-Order / Ordered Queue: EEPU
+// Tag is: TLEN, SOF, EOF, QID = 15
+
+
+
+
+
+
+// Nack + Tag Info + CTag
+
+
+
+
+// ENET Ingress Queue Management Req
+
+
+
+
+
+
+
+
+
+
+
+
+// ENET Ingress Queue Management Ack
+
+
+
+
+
+
+
+
+// Enet Ingress Packet Unit
+
+
+
+
+
+
+
+
+
+
+
+
+// ENET Ingress Packet Unit Ack
+
+
+
+
+
+
+
+// In-Order / Ordered Queue: PCI
+// Tag is: CTAG
+
+
+
+
+
+// PCI-X Request
+
+
+
+
+
+
+
+
+
+
+
+// PCI_X Acknowledge
+
+
+
+
+
+
+
+
+
+
+
+//
+// BSC array sizes
+//================
+//
+
+
+
+
+
+
+
+
+
+
+
+
+// ECC syndrome bits per memory element
+
+
+
+
+//
+// BSC Port Definitions
+// ====================
+//
+// Bits 7 to 4 of curr_port_id
+
+
+
+
+
+
+
+
+// Number of ports of each type
+
+
+// Bits needed to represent above
+
+
+// How wide the linked list pointers are
+// 60b for no payload (2CoS)
+// 80b for payload (2CoS)
+
+//`define BSC_OBJ_PTR   80
+//`define BSC_HD1_HI    69
+//`define BSC_HD1_LO    60
+//`define BSC_TL1_HI    59
+//`define BSC_TL1_LO    50
+//`define BSC_CT1_HI    49
+//`define BSC_CT1_LO    40
+//`define BSC_HD0_HI    29
+//`define BSC_HD0_LO    20
+//`define BSC_TL0_HI    19
+//`define BSC_TL0_LO    10
+//`define BSC_CT0_HI     9
+//`define BSC_CT0_LO     0
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// I2C STATES in DRAMctl
+
+
+
+
+
+
+
+//
+// IOB defines
+// ===========
+//
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//`define IOB_INT_STAT_WIDTH   32
+//`define IOB_INT_STAT_HI      31
+//`define IOB_INT_STAT_LO       0
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// fixme - double check address mapping
+// CREG in `IOB_INT_CSR space
+
+
+
+
+
+
+
+
+
+
+// CREG in `IOB_MAN_CSR space
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// Address map for TAP access of SPARC ASI
+
+
+
+
+
+
+
+
+
+
+
+
+
+//
+// CIOP UCB Bus Width
+// ==================
+//
+//`define IOB_EECU_WIDTH       16  // ethernet egress command
+//`define EECU_IOB_WIDTH       16
+
+//`define IOB_NRAM_WIDTH       16  // NRAM (RLDRAM previously)
+//`define NRAM_IOB_WIDTH        4
+
+
+
+
+//`define IOB_ENET_ING_WIDTH   32  // ethernet ingress
+//`define ENET_ING_IOB_WIDTH    8
+
+//`define IOB_ENET_EGR_WIDTH    4  // ethernet egress
+//`define ENET_EGR_IOB_WIDTH    4
+
+//`define IOB_ENET_MAC_WIDTH    4  // ethernet MAC
+//`define ENET_MAC_IOB_WIDTH    4
+
+
+
+
+//`define IOB_BSC_WIDTH         4  // BSC
+//`define BSC_IOB_WIDTH         4
+
+
+
+
+
+
+
+//`define IOB_CLSP_WIDTH        4  // clk spine unit
+//`define CLSP_IOB_WIDTH        4
+
+
+
+
+
+//
+// CIOP UCB Buf ID Type
+// ====================
+//
+
+
+
+//
+// Interrupt Device ID
+// ===================
+//
+// Caution: DUMMY_DEV_ID has to be 9 bit wide
+//          for fields to line up properly in the IOB.
+
+
+
+//
+// Soft Error related definitions 
+// ==============================
+//
+
+
+
+//
+// CMP clock
+// =========
+//
+
+
+
+
+//
+// NRAM/IO Interface
+// =================
+//
+
+
+
+
+
+
+
+
+
+
+//
+// NRAM/ENET Interface
+// ===================
+//
+
+
+
+
+
+
+
+//
+// IO/FCRAM Interface
+// ==================
+//
+
+
+
+
+
+
+//
+// PCI Interface
+// ==================
+// Load/store size encodings
+// -------------------------
+// Size encoding
+// 000 - byte
+// 001 - half-word
+// 010 - word
+// 011 - double-word
+// 100 - quad
+
+
+
+
+
+
+//
+// JBI<->SCTAG Interface
+// =======================
+// Outbound Header Format
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// Inbound Header Format
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//
+// JBI->IOB Mondo Header Format
+// ============================
+//
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// JBI->IOB Mondo Bus Width/Cycle
+// ==============================
+// Cycle  1 Header[15:8]
+// Cycle  2 Header[ 7:0]
+// Cycle  3 J_AD[127:120]
+// Cycle  4 J_AD[119:112]
+// .....
+// Cycle 18 J_AD[  7:  0]
+
+
+module t; initial $display("%h", 5'b00000); endmodule

@@ -1,5 +1,8 @@
 `timescale 1ps/1ps
 
+// PCX/CPX field positions come from the chip header.
+`include "iop.h"
+
 // Core-level smoke test for the OpenSPARC T1 port (per-thread version).
 //
 // The core does not self-start after reset.  One CPX INT_RET reset packet
@@ -8,7 +11,7 @@
 // then traps to the reset vector and starts fetching.
 //
 // The IFILL responder keeps one pending entry per thread and answers the
-// requests one at a time, tagging each IFILL_RET with the requesting
+// requests one at a time, tagging each RET_IFILL with the requesting
 // thread's TID.  For the first line (0xfff0000040) the returned
 // instruction word is made thread-specific:
 //
@@ -49,8 +52,8 @@ module tb_core_smoke;
     localparam [31:0] INST_NOP   = 32'h0100_0000;  // sethi %hi(0), %g0
     localparam [31:0] BA_BASE    = 32'h1080_0000;  // ba <imm22>
 
-    localparam [4:0]  IMISS_RQ   = 5'b10000;
-    localparam [3:0]  IFILL_RET  = 4'b0001;
+    localparam [4:0]  RQ_IMISS   = 5'b10000;
+    localparam [3:0]  RET_IFILL  = 4'b0001;
 
     reg gclk;
     reg reset_l;
@@ -147,9 +150,9 @@ module tb_core_smoke;
         input [127:0] data;
         begin
             ifill_pkt          = 145'b0;
-            ifill_pkt[144]     = 1'b1;          // valid
-            ifill_pkt[143:140] = IFILL_RET;
-            ifill_pkt[135:134] = tid;
+            ifill_pkt[`CPX_VLD]              = 1'b1;
+            ifill_pkt[`CPX_RQ_HI:`CPX_RQ_LO] = RET_IFILL;
+            ifill_pkt[`CPX_TH_HI:`CPX_TH_LO] = tid;
             ifill_pkt[127:0]   = data;
         end
     endfunction
@@ -161,8 +164,8 @@ module tb_core_smoke;
         reg   [144:0] pkt;
         begin
             pkt            = 145'b0;
-            pkt[144]       = 1'b1;
-            pkt[143:140]   = 4'b0111;   // INT_RET
+            pkt[`CPX_VLD]               = 1'b1;
+            pkt[`CPX_RQ_HI:`CPX_RQ_LO]  = 4'b0111;   // INT_RET
             pkt[17:16]     = 2'b01;     // reset
             pkt[9:8]       = tid;
             cpx_rst_pkt    = pkt;
@@ -207,7 +210,7 @@ module tb_core_smoke;
     reg [3:0] thr_hit;
     reg [123:0] pcx_sig_d;
 
-    wire [1:0]  pcx_tid  = spc_pcx_data_pa[113:112];
+    wire [1:0]  pcx_tid  = spc_pcx_data_pa[`PCX_TH_HI:`PCX_TH_LO];
     wire [39:0] pcx_addr = spc_pcx_data_pa[103:64];
     wire [39:0] pcx_line = {pcx_addr[39:5], 5'b0};
 
@@ -215,7 +218,7 @@ module tb_core_smoke;
     // registered from the request vector, so a back-to-back packet can
     // appear with vld still high; comparing the packet with the previous
     // cycle keeps the capture one-per-packet.
-    wire pcx_vld  = reset_l & spc_pcx_data_pa[123];
+    wire pcx_vld  = reset_l & spc_pcx_data_pa[`PCX_VLD];
     wire pcx_fire = pcx_vld & (|grant_px) &
                     (spc_pcx_data_pa[123:0] != pcx_sig_d);
 
@@ -249,7 +252,7 @@ module tb_core_smoke;
     reg [3:0] hit_now;
     always @* begin
         hit_now = 4'b0;
-        if (pcx_fire && spc_pcx_data_pa[122:118] == IMISS_RQ &&
+        if (pcx_fire && spc_pcx_data_pa[122:118] == RQ_IMISS &&
             pcx_line == hit_line)
             hit_now[pcx_tid] = 1'b1;
     end
@@ -351,7 +354,7 @@ module tb_core_smoke;
 
             // ---- request capture ------------------------------------
             if (pcx_fire) begin
-                if (spc_pcx_data_pa[122:118] == IMISS_RQ) begin
+                if (spc_pcx_data_pa[122:118] == RQ_IMISS) begin
                     imiss_count    <= imiss_count + 1;
                     imiss_cnt[pcx_tid] = imiss_cnt[pcx_tid] + 1;
                     if (!pend_vld[pcx_tid]) begin

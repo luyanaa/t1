@@ -6,7 +6,7 @@
 //
 // Boot sequence:
 //   - an INT_RET CPX packet selects the reset trap (VA 0xffff_f000_0040)
-//   - IFILL_RET packets return a 32-byte line; the first instruction is
+//   - RET_IFILL packets return a 32-byte line; the first instruction is
 //     "ba 0xffff_f000_0080"
 //   - the second I-miss at line 0xffff_f000_0080 proves that the trap,
 //     the I-cache fill and instruction execution all work
@@ -14,6 +14,8 @@
 // PCX request fields: valid[123], type[122:118], tid[113:112],
 // address[103:64].  CPX packet fields: valid[144], type[143:140],
 // tid[135:134], data[127:0].
+
+`include "iop.h"
 
 module t1_fpga_top (
     input  wire        clk,
@@ -27,8 +29,8 @@ module t1_fpga_top (
     localparam [31:0] INST_BA_80 = 32'h1080_0010;
     localparam [31:0] INST_NOP   = 32'h0100_0000;
 
-    localparam [4:0] IMISS_RQ  = 5'b10000;
-    localparam [3:0] IFILL_RET = 4'b0001;
+    localparam [4:0] RQ_IMISS  = 5'b10000;
+    localparam [3:0] RET_IFILL = 4'b0001;
 
     localparam [144:0] CPX_RST_PKT =
         (145'h1 << 144) |
@@ -101,9 +103,9 @@ module t1_fpga_top (
         input [127:0] data;
         begin
             ifill_pkt          = 145'b0;
-            ifill_pkt[144]     = 1'b1;
-            ifill_pkt[143:140] = IFILL_RET;
-            ifill_pkt[135:134] = tid;
+            ifill_pkt[`CPX_VLD]              = 1'b1;
+            ifill_pkt[`CPX_RQ_HI:`CPX_RQ_LO] = RET_IFILL;
+            ifill_pkt[`CPX_TH_HI:`CPX_TH_LO] = tid;
             ifill_pkt[127:0]   = data;
         end
     endfunction
@@ -189,9 +191,9 @@ module t1_fpga_top (
 
             case (rsp_state)
                 R_IDLE: begin
-                    if (pcx_new && spc_pcx_data_pa[122:118] == IMISS_RQ) begin
+                    if (pcx_new && spc_pcx_data_pa[122:118] == RQ_IMISS) begin
                         rsp_line  <= pcx_line;
-                        rsp_tid   <= spc_pcx_data_pa[113:112];
+                        rsp_tid   <= spc_pcx_data_pa[`PCX_TH_HI:`PCX_TH_LO];
                         rsp_delay <= 4'd8;
                         rsp_state <= R_DLY;
                     end
@@ -210,7 +212,7 @@ module t1_fpga_top (
             endcase
 
             if (pcx_new) begin
-                if (spc_pcx_data_pa[122:118] == IMISS_RQ) begin
+                if (spc_pcx_data_pa[122:118] == RQ_IMISS) begin
                     imiss_seen <= 1'b1;
                     if (pcx_line == LINE1_BASE)
                         pass <= 1'b1;
