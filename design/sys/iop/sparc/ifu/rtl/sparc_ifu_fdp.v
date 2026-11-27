@@ -321,13 +321,14 @@ module sparc_ifu_fdp(/*AUTOARG*/
 //----------------------------------------------------------------------
    assign t0_ctxt_bf = lsu_t0_pctxt_state & {13{fcl_fdp_tctxt_sel_prim[0]}};
 
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b0
 
    assign sw_ctxt = t0_ctxt_bf;
    assign curr_ctxt = t0_ctxt_bf;
    assign dmp_ctxt_unq = lsu_t0_pctxt_state;
    
-`else
+  end else begin : g_b0_n
 
    assign t1_ctxt_bf = lsu_t1_pctxt_state & {13{fcl_fdp_tctxt_sel_prim[1]}};
    assign t2_ctxt_bf = lsu_t2_pctxt_state & {13{fcl_fdp_tctxt_sel_prim[2]}};
@@ -362,7 +363,8 @@ module sparc_ifu_fdp(/*AUTOARG*/
 			      .sel1_l (fcl_fdp_dmpthr_l[1]),
 			      .sel2_l (fcl_fdp_dmpthr_l[2]),
 			      .sel3_l (fcl_fdp_dmpthr_l[3]));
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
    assign dmp_ctxt1 = dmp_ctxt_unq & {13{~(tlu_itlb_dmp_nctxt_g |
 					                                 tlu_itlb_dmp_actxt_g)}};
@@ -422,8 +424,9 @@ module sparc_ifu_fdp(/*AUTOARG*/
 			                       .sel2_l (fcl_fdp_tpcbf_sel_trap_bf_l[0]),
 			                       .sel3_l (fcl_fdp_tpcbf_sel_brpc_bf_l[0]));
 
-`ifdef FPGA_SYN_1THREAD
-`else
+generate
+  if (`SPARC_SMT == 1) begin : g_b1
+  end else begin : g_b1_n
    dp_mux4ds #(49) t1_pcbf_mux(.dout (t1npc_bf), 
 			                       .in0 ({fcl_fdp_pcoor_vec_f[1], t1pc_f[47:0]}), 
 			                       .in1 (nextpc_nosw_bf), 
@@ -453,17 +456,19 @@ module sparc_ifu_fdp(/*AUTOARG*/
 			                       .sel1_l (fcl_fdp_tpcbf_sel_pcp4_bf_l[3]),
 			                       .sel2_l (fcl_fdp_tpcbf_sel_trap_bf_l[3]),
 			                       .sel3_l (fcl_fdp_tpcbf_sel_brpc_bf_l[3]));
-`endif
+  end
+endgenerate
    
    // F stage thread PC regs;  use low power thr flop
    dff_s  #(49)  t0_pcf_reg(.din (t0npc_bf), 
 			                  .clk (clk), 
 			                  .q   (t0pc_f), 
 			                  .se  (se), .si(), .so());
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b2
    assign fdp_fcl_pc_oor_vec_f = {3'b0, t0pc_f[48]};
    assign swpc_bf = t0pc_f[47:0];
-`else
+  end else begin : g_b2_n
    dff_s  #(49)  t1_pcf_reg(.din (t1npc_bf), 
 			                  .clk (clk), 
 			                  .q   (t1pc_f), 
@@ -491,7 +496,8 @@ module sparc_ifu_fdp(/*AUTOARG*/
 			                    .sel1_l (fcl_fdp_next_thr_bf_l[1]),
 			                    .sel2_l (fcl_fdp_next_thr_bf_l[2]),
 			                    .sel3_l (fcl_fdp_next_thr_bf_l[3]));
-`endif
+  end
+endgenerate
 
    // choose between I$ write address and read address
    // need mux only for lower 11 bits (2+3 + ICINDEX_SIZE)
@@ -549,8 +555,9 @@ module sparc_ifu_fdp(/*AUTOARG*/
 			      .sel2_l  (fcl_fdp_trrbpc_sel_pcs_bf_l[0]),
 			      .sel3_l  (fcl_fdp_trrbpc_sel_err_bf_l[0]));
   
-`ifdef FPGA_SYN_1THREAD
-`else 
+generate
+  if (`SPARC_SMT == 1) begin : g_b3
+  end else begin : g_b3_n
    dp_mux4ds #(49) trap_pc1_mux(.dout (t1_trap_rb_pc_bf),
 			      .in0  (tlu_ifu_trappc_w2),
 			      .in1  (pc_d_adj),
@@ -580,7 +587,8 @@ module sparc_ifu_fdp(/*AUTOARG*/
 			      .sel1_l  (fcl_fdp_trrbpc_sel_rb_bf_l[3]),
 			      .sel2_l  (fcl_fdp_trrbpc_sel_pcs_bf_l[3]),
 			      .sel3_l  (fcl_fdp_trrbpc_sel_err_bf_l[3]));
-`endif
+  end
+endgenerate
    
 
    // can reduce this to a 2:1 mux since reset pc is not used any more and
@@ -607,8 +615,9 @@ module sparc_ifu_fdp(/*AUTOARG*/
 			   .sel2_l (fcl_fdp_nextpcs_sel_pcd_f_l[0]),
 			   .sel3_l (fcl_fdp_nextpcs_sel_pce_f_l[0]));
 
-`ifdef FPGA_SYN_1THREAD
-`else  
+generate
+  if (`SPARC_SMT == 1) begin : g_b4
+  end else begin : g_b4_n
    dp_mux4ds #(49) t1pcf_mux(.dout (t1_next_pcs_f), 
 			   .in0  (t1pc_s), 
 			   .in1  ({fcl_fdp_pcoor_vec_f[1], t1pc_f[47:0]}),
@@ -640,17 +649,19 @@ module sparc_ifu_fdp(/*AUTOARG*/
 			   .sel1_l (fcl_fdp_nextpcs_sel_pcf_f_l[3]),
 			   .sel2_l (fcl_fdp_nextpcs_sel_pcd_f_l[3]),
 			   .sel3_l (fcl_fdp_nextpcs_sel_pce_f_l[3]));
-`endif
+  end
+endgenerate
    
    
    // S stage thread PC regs;  use low power thr flop
    dff_s  #(49)  t0pcs_reg(.din  (t0_next_pcs_f),  
 		                   .q    (t0pc_s), 
 		                   .clk  (clk),  .se(se), .si(), .so());
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b5
    assign pc_s = t0pc_s;
    assign npc_s = t0_next_pcs_f;
-`else  
+  end else begin : g_b5_n
    dff_s  #(49)  t1pcs_reg(.din  (t1_next_pcs_f),  
 		                   .q    (t1pc_s), 
 		                   .clk  (clk),  .se(se), .si(), .so());
@@ -682,7 +693,8 @@ module sparc_ifu_fdp(/*AUTOARG*/
 			  .sel1_l (fcl_fdp_thr_s2_l[1]),
 			  .sel2_l (fcl_fdp_thr_s2_l[2]),
 			  .sel3_l (fcl_fdp_thr_s2_l[3]));
-`endif
+  end
+endgenerate
 
    // D stage PC and nPC
    dff_s  #(49)  pcd_reg(.din (pc_s), 
@@ -754,8 +766,9 @@ module sparc_ifu_fdp(/*AUTOARG*/
 			                        .sel2_l  (fcl_fdp_thrtnpc_sel_pcf_l[0]),
 			                        .sel3_l  (fcl_fdp_thrtnpc_sel_old_l[0]));
   
-`ifdef FPGA_SYN_1THREAD
-`else
+generate
+  if (`SPARC_SMT == 1) begin : g_b6
+  end else begin : g_b6_n
    dp_mux4ds #(49) t1tnpc_mux(.dout (trapnpc1_bf),
 			    .in0  (tlu_ifu_trapnpc_w2),
 			    .in1  (npc_w),
@@ -785,15 +798,17 @@ module sparc_ifu_fdp(/*AUTOARG*/
 			    .sel1_l  (fcl_fdp_thrtnpc_sel_npcw_l[3]),
           .sel2_l  (fcl_fdp_thrtnpc_sel_pcf_l[3]),
 			    .sel3_l  (fcl_fdp_thrtnpc_sel_old_l[3]));
-`endif
+  end
+endgenerate
    
    // thread next trap pc reg
    dff_s #(49) t0tnpcf_reg(.din  (trapnpc0_bf),
 		                   .q    (t0_trapnpc_f),
 		                   .clk  (clk),  .se(se), .si(), .so());
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b7
    assign thr_trappc_bf = t0_trapnpc_f;
-`else
+  end else begin : g_b7_n
    dff_s #(49) t1tnpcf_reg(.din  (trapnpc1_bf),
 		                   .q    (t1_trapnpc_f),
 		                   .clk  (clk),  .se(se), .si(), .so());
@@ -813,7 +828,8 @@ module sparc_ifu_fdp(/*AUTOARG*/
 			    .sel1_l (fcl_fdp_thr_s2_l[1]),
 			    .sel2_l (fcl_fdp_thr_s2_l[2]),
 			    .sel3_l (fcl_fdp_thr_s2_l[3]));
-`endif
+  end
+endgenerate
 
    // During rst nextpc_nosw_bf = PO_RESET_PC.  All thread PC_f registers,
    // the icaddr_f register and the nextpc register should be loaded
@@ -895,8 +911,9 @@ module sparc_ifu_fdp(/*AUTOARG*/
 			     .sel2_l (fcl_fdp_tinst_sel_old_s_l[0]),
 			     .sel3_l (fcl_fdp_tinst_sel_rb_s_l[0]));
 
-`ifdef FPGA_SYN_1THREAD
-`else
+generate
+  if (`SPARC_SMT == 1) begin : g_b8
+  end else begin : g_b8_n
    dp_mux4ds #(33)  t1inst_mux(.dout (t1inst_s1),
 			     .in0 (ifq_fdp_fill_inst),  
 			     .in1 (inst_s1_bf1), 
@@ -926,15 +943,17 @@ module sparc_ifu_fdp(/*AUTOARG*/
 			     .sel1_l (fcl_fdp_tinst_sel_curr_s_l[3]),
 			     .sel2_l (fcl_fdp_tinst_sel_old_s_l[3]),
 			     .sel3_l (fcl_fdp_tinst_sel_rb_s_l[3]));
-`endif
+  end
+endgenerate
 
    // Thread Instruction Register
    dff_s #(33) t0_inst_reg(.din  (t0inst_s1), 
 		                   .q    (t0inst_s2),
 		                   .clk  (clk),  .se(se), .si(), .so());
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b9
    assign inst_s2 = t0inst_s2;
-`else
+  end else begin : g_b9_n
    dff_s #(33) t1_inst_reg(.din  (t1inst_s1), 
 		                   .q    (t1inst_s2),
 		                   .clk  (clk),  .se(se), .si(), .so());
@@ -956,7 +975,8 @@ module sparc_ifu_fdp(/*AUTOARG*/
 			     .sel1_l (fcl_fdp_thr_s2_l[1]),
 			     .sel2_l (fcl_fdp_thr_s2_l[2]),
 			     .sel3_l (fcl_fdp_thr_s2_l[3]));
-`endif
+  end
+endgenerate
 
    // Rollback instruction
    dff_s #(33) rbinst_d_reg(.din (fdp_inst_s[32:0]),
@@ -974,8 +994,9 @@ module sparc_ifu_fdp(/*AUTOARG*/
 			                       .in1  (inst_e),
 			                       .sel  (fcl_fdp_rbinst_sel_inste_s[0]));
 
-`ifdef FPGA_SYN_1THREAD
-`else
+generate
+  if (`SPARC_SMT == 1) begin : g_b10
+  end else begin : g_b10_n
    dp_mux2es #(33) rbinst1_mux(.dout (rb_inst1_s),
 			                       .in0  (inst_d),
 			                       .in1  (inst_e),
@@ -990,7 +1011,8 @@ module sparc_ifu_fdp(/*AUTOARG*/
 			                       .in0  (inst_d),
 			                       .in1  (inst_e),
 			                       .sel  (fcl_fdp_rbinst_sel_inste_s[3]));
-`endif
+  end
+endgenerate
 
 //----------------------------------------------------------------------
 // Next Instruction Datapath
@@ -1035,9 +1057,10 @@ module sparc_ifu_fdp(/*AUTOARG*/
 		                   .clk  (clk_nir0), .se(se), .si(), .so());
 `endif
    
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b11
    assign nirdata_s1 = t0nir; 
-`else
+  end else begin : g_b11_n
    wire   clk_nir1;
 `ifdef FPGA_SYN_CLK_EN
 `else
@@ -1105,7 +1128,8 @@ module sparc_ifu_fdp(/*AUTOARG*/
 		                          .sel1_l (fcl_fdp_nirthr_s1_l[1]),
 		                          .sel2_l (fcl_fdp_nirthr_s1_l[2]),
 		                          .sel3_l (fcl_fdp_nirthr_s1_l[3]));
-`endif
+  end
+endgenerate
 
    // TBD in fetched instruction DP:
    // 1. Rollback -- DONE

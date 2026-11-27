@@ -867,9 +867,10 @@ assign trap3_tsa_wdata[`TLU_TT_HI:`TLU_TT_LO] =
        tlu_final_ttype_w2[`TSA_TTYPE_WIDTH-1:0]; 
 //
 // modified for timing: tlu_thrd_wsel_g -> tlu_thrd_wsel_w2
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b0
    assign trap_tsa_wdata[`TLU_TSA_WIDTH-1:0] = trap0_tsa_wdata[`TLU_TSA_WIDTH-1:0];
-`else
+  end else begin : g_b0_n
    
 mux4ds  #(`TLU_TSA_WIDTH) tsawdsel (
         .in0    (trap0_tsa_wdata[`TLU_TSA_WIDTH-1:0]),
@@ -882,7 +883,8 @@ mux4ds  #(`TLU_TSA_WIDTH) tsawdsel (
         .sel3   (tlu_thrd_wsel_w2[3]),
         .dout   (trap_tsa_wdata[`TLU_TSA_WIDTH-1:0])
 ); 
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
 //
 // modified for timing and lint violations
@@ -957,9 +959,10 @@ mux2ds #(`TLU_TSA_WIDTH) tsawdata_sel (
 // modified for bug 2204
 // recoded due to one-hot problem during reset
 
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b1
    assign sftint[`SFTINT_WIDTH-1:0] = sftint0[`SFTINT_WIDTH-1:0];
-`else
+  end else begin : g_b1_n
    
 mux4ds #(`SFTINT_WIDTH) mx_sftint (
         .in0  (sftint0[`SFTINT_WIDTH-1:0]),
@@ -972,7 +975,8 @@ mux4ds #(`SFTINT_WIDTH) mx_sftint (
         .sel3 (tlu_sftint_mx_sel[3]),
         .dout (sftint[`SFTINT_WIDTH-1:0])
 );
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
 /*
 assign sftint_sel_onehot_g = 
@@ -1341,9 +1345,10 @@ assign sftint_lvl14[3] =
 //
 // modified to ensure one-hot mux check
 
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b2
    assign sftint_penc_din[14:0] = ({sftint0[15],sftint_lvl14[0],sftint0[13:1]});
-`else
+  end else begin : g_b2_n
    
 mux4ds #(`SFTINT_WIDTH-2) mx_sftint_penc_din (
     .in0  ({sftint0[15],sftint_lvl14[0],sftint0[13:1]}),
@@ -1356,7 +1361,8 @@ mux4ds #(`SFTINT_WIDTH-2) mx_sftint_penc_din (
     .sel3 (tlu_sftint_penc_sel[3]),
     .dout (sftint_penc_din[14:0])
 );
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
 tlu_prencoder16	prencoder16 (
 			.din	(sftint_penc_din[14:0]),
@@ -1382,9 +1388,10 @@ mux4ds #(`SFTINT_WIDTH) sftint_mx_rsel (
     .dout (sftint_rdata[16:0])
 );
 */
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b3
    assign      sftint_rdata[16:0] = sftint0[`SFTINT_WIDTH-1:0];
-`else
+  end else begin : g_b3_n
    
 mux4ds #(`SFTINT_WIDTH) sftint_mx_rsel (
     .in0  (sftint0[`SFTINT_WIDTH-1:0]),
@@ -1397,7 +1404,8 @@ mux4ds #(`SFTINT_WIDTH) sftint_mx_rsel (
     .sel3 (tlu_thrd_rsel_e[3]),
     .dout (sftint_rdata[16:0])
 );
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
 //=========================================================================================
 //	TBA for Threads
@@ -1536,11 +1544,12 @@ dff_s #(33) tba3 (
 // tba_data is for traps specifically
 // modified for timing 
 
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b4
    assign      tba_data[32:0] = true_tba0[32:0];
    assign      tba_rdata[32:0] = true_tba0[32:0];
    
-`else
+  end else begin : g_b4_n
    
 mux4ds #(33) mux_tba_data (
        .in0  (true_tba0[32:0]),
@@ -1579,7 +1588,8 @@ mux4ds #(33) tba_mx_rsel (
        .sel3 (tlu_thrd_rsel_e[3]),
        .dout (tba_rdata[32:0])
 ); 
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
 
 // added for hypervisor support
 //
@@ -1714,10 +1724,11 @@ dff_s #(`TLU_HTBA_WIDTH) dff_true_htba3 (
 // constructing the rdata for HTBA
 wire [`TLU_HTBA_WIDTH-1:0] htba_rdata;
 
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b5
    assign 		   htba_rdata[`TLU_HTBA_WIDTH-1:0] = true_htba0[`TLU_HTBA_WIDTH-1:0];
    assign 		   htba_data[`TLU_HTBA_WIDTH-1:0] = true_htba0[`TLU_HTBA_WIDTH-1:0];
-`else
+  end else begin : g_b5_n
    
 mux4ds #(`TLU_HTBA_WIDTH) mux_htba_rdata (
        .in0  (true_htba0[`TLU_HTBA_WIDTH-1:0]),
@@ -1744,7 +1755,8 @@ mux4ds #(`TLU_HTBA_WIDTH) mux_htba_data (
        .sel3 (tlu_thrd_wsel_w2[3]),
        .dout (htba_data[`TLU_HTBA_WIDTH-1:0])
 );
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
 /*
 mux4ds #(`TLU_HTBA_WIDTH) mux_htba_data (
@@ -1994,10 +2006,11 @@ dff_s #(`TLU_ASR_DATA_WIDTH-1) tickcmp3 (
 
 // Select 1/4 sources. Assume compare is independent of read
 // and thus needs separate mux
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b6
    assign tickcmp_data[`TLU_ASR_DATA_WIDTH-4:0] = true_tickcmp0[`TLU_ASR_DATA_WIDTH-2:2];
    assign tickcmp_rdata[`TLU_ASR_DATA_WIDTH-1:0] = true_tickcmp0[`TLU_ASR_DATA_WIDTH-1:0];
-`else
+  end else begin : g_b6_n
    
 mux4ds #(`TLU_ASR_DATA_WIDTH-3) tcmp_mx_sel (
        .in0  (true_tickcmp0[`TLU_ASR_DATA_WIDTH-2:2]),
@@ -2023,7 +2036,8 @@ mux4ds #(`TLU_ASR_DATA_WIDTH) tcmp_mx_rsel (
        .sel3 (tlu_thrd_rsel_e[3]),
        .dout (tickcmp_rdata[`TLU_ASR_DATA_WIDTH-1:0])
 );
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
 //
 // evaluate for tickcmp match
@@ -2237,10 +2251,11 @@ dff_s #(`TLU_ASR_DATA_WIDTH-1) stickcmp3 (
 // Select 1/4 sources. Assume compare is independent of read
 // and thus needs separate mux
 
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b7
    assign stickcmp_data[`TLU_ASR_DATA_WIDTH-4:0] = true_stickcmp0[`TLU_ASR_DATA_WIDTH-2:2];
    assign stickcmp_rdata[`TLU_ASR_DATA_WIDTH-1:0] = true_stickcmp0[`TLU_ASR_DATA_WIDTH-1:0];
-`else
+  end else begin : g_b7_n
    
 mux4ds #(`TLU_ASR_DATA_WIDTH-3) mux_stickcmp_data (
        .in0  (true_stickcmp0[`TLU_ASR_DATA_WIDTH-2:2]),
@@ -2266,7 +2281,8 @@ mux4ds #(`TLU_ASR_DATA_WIDTH) mux_stickcmp_rdata (
        .sel3 (tlu_thrd_rsel_e[3]),
        .dout (stickcmp_rdata[`TLU_ASR_DATA_WIDTH-1:0])
 );
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
 //
 // evaluate for stickcmp match
@@ -2416,10 +2432,11 @@ dff_s #(`TLU_ASR_DATA_WIDTH-1) htickcmp3 (
 
 // Select 1/4 sources. Assume compare is independent of read
 // and thus needs separate mux
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b8
    assign htickcmp_data[`TLU_ASR_DATA_WIDTH-4:0] = true_htickcmp0[`TLU_ASR_DATA_WIDTH-2:2];
    assign htickcmp_rdata[`TLU_ASR_DATA_WIDTH-2:0] = true_htickcmp0[`TLU_ASR_DATA_WIDTH-2:0];
-`else
+  end else begin : g_b8_n
    
 mux4ds #(`TLU_ASR_DATA_WIDTH-3) mux_htickcmp_data (
        .in0  (true_htickcmp0[`TLU_ASR_DATA_WIDTH-2:2]),
@@ -2445,7 +2462,8 @@ mux4ds #(`TLU_ASR_DATA_WIDTH-1) mux_htickcmp_rdata (
        .sel3 (tlu_thrd_rsel_e[3]),
        .dout (htickcmp_rdata[`TLU_ASR_DATA_WIDTH-2:0])
 );
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
 //
 // evaluate for htickcmp match
@@ -3118,10 +3136,11 @@ assign tlu_partial_trap_pc_w1[33:0] = partial_trap_pc_w2[33:0];
 // restore pc/npc select
 // true pc muxed into restore pc; previously restore_pcx was muxed in.
 // modified due to bug 3017
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b9
    assign restore_pc_w2[48:0] = true_pc0[48:0];
    assign restore_npc_w2[48:0] = true_npc0[48:0];
-`else
+  end else begin : g_b9_n
    
 mux4ds  #(98) trprsel (
         .in0    ({true_pc0[48:0],true_npc0[48:0]}),
@@ -3134,7 +3153,8 @@ mux4ds  #(98) trprsel (
         .sel3   (tlu_thrd_wsel_w2[3]),
         .dout   ({restore_pc_w2[48:0],restore_npc_w2[48:0]})
 );
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
 //
 // the matching of the w1 and w2 is intentional
@@ -3175,9 +3195,10 @@ assign sscan_data_test3[`TDP_SSCAN_WIDTH-1:0] =
             true_pstate3[`PSTATE_IE],
             true_pc3[47:2]};
 //
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b10
    assign tdp_sscan_test_data[`TDP_SSCAN_WIDTH-1:0] = sscan_data_test0[`TDP_SSCAN_WIDTH-1:0];
-`else
+  end else begin : g_b10_n
    
 mux4ds #(`TDP_SSCAN_WIDTH) mx_sscan_test_data (
        .in0  (sscan_data_test0[`TDP_SSCAN_WIDTH-1:0]),
@@ -3190,7 +3211,8 @@ mux4ds #(`TDP_SSCAN_WIDTH) mx_sscan_test_data (
        .sel3 (sscan_tid_sel[3]),
        .dout (tdp_sscan_test_data[`TDP_SSCAN_WIDTH-1:0])
 ); 
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
 assign sscan_tid_sel[`TLU_THRD_NUM-1:0] = ctu_sscan_tid[`TLU_THRD_NUM-1:0]; 
 
@@ -3771,7 +3793,8 @@ assign tlu_hpstate_tlz[0] = true_hpstate0[`HPSTATE_TLZ];
 // hypervisor instruction breakpt enable 
 assign tlu_hpstate_ibe[0] = true_hpstate0[`HPSTATE_IBE];
 
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b11
    assign tlu_ifu_pstate_pef[3:1] = 3'b000;
    assign tlu_lsu_pstate_cle[3:1] = 3'b000;
    assign tlu_lsu_pstate_priv[3:1] = 3'b000;
@@ -3791,7 +3814,7 @@ assign tlu_hpstate_ibe[0] = true_hpstate0[`HPSTATE_IBE];
    assign tlu_hpstate_tlz[3:1] = 3'b000;
    assign tlu_hpstate_ibe[3:1] = 3'b000;
    
-`else
+  end else begin : g_b11_n
    
 // THREAD 1
 assign tlu_pstate_nt_sel1 = 
@@ -4629,16 +4652,18 @@ assign tlu_hpstate_tlz[3] = true_hpstate3[`HPSTATE_TLZ];
 // hypervisor instruction breakpt enable 
 assign tlu_hpstate_ibe[3] = true_hpstate3[`HPSTATE_IBE];
 
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
 // Mux to choose the pstate register to read base on thread
 wire [`PSTATE_TRUE_WIDTH-1:0] pstate_rdata;
 wire [`RDSR_HPSTATE_WIDTH-1:0] hpstate_rdata;
 
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b12
    assign       pstate_rdata[`PSTATE_TRUE_WIDTH-1:0] = true_pstate0[`PSTATE_TRUE_WIDTH-1:0];
    assign 	true_hpstate[`TLU_HPSTATE_WIDTH-1:0] = true_hpstate0[`TLU_HPSTATE_WIDTH-1:0];
-`else
+  end else begin : g_b12_n
    
 mux4ds #(12) pstate_mx_sel (
        .in0  (true_pstate0[`PSTATE_TRUE_WIDTH-1:0]),
@@ -4666,7 +4691,8 @@ mux4ds #(`TLU_HPSTATE_WIDTH) hpstate_mx_sel (
        .sel3 (tlu_thrd_rsel_e[3]),
        .dout (true_hpstate[`TLU_HPSTATE_WIDTH-1:0])
 );
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
 // 
 // assigned the stored hpstate bits to the ASR positions
@@ -4714,10 +4740,11 @@ assign htstate_rdata[`WSR_HPSTATE_PRIV-1:`WSR_HPSTATE_TLZ+1]  = 1'b0;
 //=========================================================================================
 
 // mux data width - 2b
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b13
    assign global_rdata[`TSA_GLOBAL_WIDTH-1:0] = tlu_gl_lvl0[`TSA_GLOBAL_WIDTH-1:0];
    assign hintp_rdata = tlu_hintp[0];
-`else
+  end else begin : g_b13_n
    
 			 
 mux4ds #(`TSA_GLOBAL_WIDTH) mux_global_rdata (
@@ -4745,7 +4772,8 @@ mux4ds #(1) mux_hintp_rdata (
         .sel3   (tlu_thrd_rsel_e[3]),
         .dout   (hintp_rdata)
 );
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
 // 
 // tstate.gl - 2b

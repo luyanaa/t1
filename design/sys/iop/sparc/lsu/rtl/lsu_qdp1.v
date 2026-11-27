@@ -398,9 +398,10 @@ assign  lmq0_pcx_pkt[`LMQ_VLD:0]  = {lmq0_pcx_pkt_vld,
 assign  ld_sec_hit_thrd0 =  
 (ld_pcx_pkt_g_tmp[`LMQ_AD_HI:`LMQ_AD_LO+4] == lmq0_pcx_pkt[`LMQ_AD_HI:`LMQ_AD_LO+4]) ;            
 
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b0
   assign load_pcx_pkt[`LMQ_WIDTH-1:0] = lmq0_pcx_pkt[`LMQ_WIDTH-1:0];
-`else
+  end else begin : g_b0_n
 // THREAD 1.
 /*
 dffe_s  #(`LMQ_WIDTH) lmq1 (
@@ -567,7 +568,8 @@ mux4ds  #(`LMQ_WIDTH) lmq_pthrd_sel (
   .sel3   (ld_pcx_rq_sel[3]),
   .dout (load_pcx_pkt[`LMQ_WIDTH-1:0])
 );
-`endif
+  end
+endgenerate
 
 assign  lsu_pref_pcx_req = load_pcx_pkt[`LMQ_PREF] ;
 
@@ -575,48 +577,56 @@ assign  lsu_pref_pcx_req = load_pcx_pkt[`LMQ_PREF] ;
 // E-stage muxing : required for fills specifically.
 
    assign lmq0_ldd_vld =   lmq0_pcx_pkt[`LMQ_RD2_VLD];
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b1
    assign lmq1_ldd_vld =   1'b0;
    assign lmq2_ldd_vld =   1'b0;
    assign lmq3_ldd_vld =   1'b0;
-`else
+  end else begin : g_b1_n
    assign lmq1_ldd_vld =   lmq1_pcx_pkt[`LMQ_RD2_VLD];
    assign lmq2_ldd_vld =   lmq2_pcx_pkt[`LMQ_RD2_VLD];
    assign lmq3_ldd_vld =   lmq3_pcx_pkt[`LMQ_RD2_VLD];
-`endif
+  end
+endgenerate
 
    assign lmq0_pcx_pkt_addr[10:0] =  lmq0_pcx_pkt[`LMQ_AD_LO + 10 :`LMQ_AD_LO];
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b2
    assign lmq1_pcx_pkt_addr[10:0] =  11'b0;
    assign lmq2_pcx_pkt_addr[10:0] =  11'b0;
    assign lmq3_pcx_pkt_addr[10:0] =  11'b0;
-`else
+  end else begin : g_b2_n
    assign lmq1_pcx_pkt_addr[10:0] =  lmq1_pcx_pkt[`LMQ_AD_LO + 10 :`LMQ_AD_LO];
    assign lmq2_pcx_pkt_addr[10:0] =  lmq2_pcx_pkt[`LMQ_AD_LO + 10 :`LMQ_AD_LO];
    assign lmq3_pcx_pkt_addr[10:0] =  lmq3_pcx_pkt[`LMQ_AD_LO + 10 :`LMQ_AD_LO];
-`endif
+  end
+endgenerate
 
    assign lmq0_ld_rq_type[2:0] = lmq0_pcx_pkt[`LMQ_RQ_HI:`LMQ_RQ_LO];
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b3
    assign lmq1_ld_rq_type[2:0] = 3'b0;
    assign lmq2_ld_rq_type[2:0] = 3'b0;
    assign lmq3_ld_rq_type[2:0] = 3'b0;
-`else
+  end else begin : g_b3_n
    assign lmq1_ld_rq_type[2:0] = lmq1_pcx_pkt[`LMQ_RQ_HI:`LMQ_RQ_LO];
    assign lmq2_ld_rq_type[2:0] = lmq2_pcx_pkt[`LMQ_RQ_HI:`LMQ_RQ_LO];
    assign lmq3_ld_rq_type[2:0] = lmq3_pcx_pkt[`LMQ_RQ_HI:`LMQ_RQ_LO];
-`endif
+  end
+endgenerate
    
     assign lmq0_l2fill_fpld =  lmq0_pcx_pkt[`LMQ_FPLD];
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b4
     assign lmq1_l2fill_fpld =  1'b0;
     assign lmq2_l2fill_fpld =  1'b0;
     assign lmq3_l2fill_fpld =  1'b0;
-`else
+  end else begin : g_b4_n
     assign lmq1_l2fill_fpld =  lmq1_pcx_pkt[`LMQ_FPLD];
     assign lmq2_l2fill_fpld =  lmq2_pcx_pkt[`LMQ_FPLD];
     assign lmq3_l2fill_fpld =  lmq3_pcx_pkt[`LMQ_FPLD];
-`endif
+  end
+endgenerate
 /*
    wire    lsu_l2fill_fpld_e;
  
@@ -639,23 +649,26 @@ mux4ds  #(44) lmq_dthrd_sel1 (
 */
 
    assign  lmq0_ncache_ld =   lmq0_pcx_pkt[`LMQ_NC];
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b5
    assign  lmq1_ncache_ld =   1'b0;
    assign  lmq2_ncache_ld =   1'b0;
    assign  lmq3_ncache_ld =   1'b0;
-`else
+  end else begin : g_b5_n
    assign  lmq1_ncache_ld =   lmq1_pcx_pkt[`LMQ_NC];
    assign  lmq2_ncache_ld =   lmq2_pcx_pkt[`LMQ_NC];
    assign  lmq3_ncache_ld =   lmq3_pcx_pkt[`LMQ_NC];
-`endif
+  end
+endgenerate
    
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b6
    assign lmq_ld_addr[39:0] =  lmq0_pcx_pkt[`LMQ_AD_HI:`LMQ_AD_LO];
    assign lsu_byp_misc_sz_e[1:0] = lmq0_pcx_pkt[`LMQ_SZ_HI: `LMQ_SZ_LO];
    assign lmq_ld_rd1[4:0] = lmq0_pcx_pkt[`LMQ_RD1_HI: `LMQ_RD1_LO];
    assign lsu_l2fill_bendian_m = lmq0_pcx_pkt[`LMQ_BIGEND];
    assign lsu_l2fill_sign_extend_m = lmq0_pcx_pkt[`LMQ_SIGNEXT];
-`else
+  end else begin : g_b6_n
 mux4ds  #(42) lmq_dthrd_sel1 (
   .in0  ({lmq0_pcx_pkt[`LMQ_AD_HI:`LMQ_AD_LO],
           lmq0_pcx_pkt[`LMQ_SZ_HI: `LMQ_SZ_LO]}),
@@ -695,18 +708,21 @@ mux4ds  #(7) lmq_dthrd_sel2 (
   .sel3 (lmq_byp_misc_sel[3]),
   .dout ({lmq_ld_rd1[4:0],lsu_l2fill_bendian_m,lsu_l2fill_sign_extend_m})
 );
-`endif
+  end
+endgenerate
 
    assign  lmq0_byp_misc_sz[1:0] = lmq0_pcx_pkt[`LMQ_SZ_HI: `LMQ_SZ_LO];
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b7
    assign  lmq1_byp_misc_sz[1:0] = 2'b0;
    assign  lmq2_byp_misc_sz[1:0] = 2'b0;
    assign  lmq3_byp_misc_sz[1:0] = 2'b0;
-`else
+  end else begin : g_b7_n
    assign  lmq1_byp_misc_sz[1:0] = lmq1_pcx_pkt[`LMQ_SZ_HI: `LMQ_SZ_LO];
    assign  lmq2_byp_misc_sz[1:0] = lmq2_pcx_pkt[`LMQ_SZ_HI: `LMQ_SZ_LO];
    assign  lmq3_byp_misc_sz[1:0] = lmq3_pcx_pkt[`LMQ_SZ_HI: `LMQ_SZ_LO];
-`endif
+  end
+endgenerate
    
 
 //assign  lmq_pcx_pkt_addr[10:0] = lmq_ld_addr[10:0] ;
@@ -1055,8 +1071,9 @@ dff_s  #(64) ldbyp0_data_ff (
         );
 `endif
 
-`ifdef FPGA_SYN_1THREAD
-`else
+generate
+  if (`SPARC_SMT == 1) begin : g_b8
+  end else begin : g_b8_n
    
 // THREAD 1
 // 1-hot fix: 8/1/03 - can be multihot during scan
@@ -1322,12 +1339,14 @@ dff_s  #(64) ldbyp3_data_ff (
         );
 `endif
    
-`endif
+  end
+endgenerate
 
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b9
   assign cas_pkt2_data[63:0] = lmq0_bypass_data[63:0];
   assign tlb_st_data[63:0] = lmq0_bypass_data[63:0];
-`else
+  end else begin : g_b9_n
 // This can be merged with above mux !!!!
 mux4ds  #(64) ld_byp_cas_mx (
   .in0  (lmq0_bypass_data[63:0]),
@@ -1353,7 +1372,8 @@ mux4ds  #(64) tlb_st_mx (
   .sel3   (lsu_tlb_st_sel_m[3]),
   .dout (tlb_st_data[63:0])
 );
-`endif
+  end
+endgenerate
 
 /*mux4ds  #(64) tlb_st_mx (
   .in0  (lmq0_bypass_data[63:0]),
@@ -1442,9 +1462,10 @@ assign  lsu_diagnstc_data_sel_1hot[2]  =  lsu_diagnstc_data_sel[2] & ~rst_tri_en
 assign  lsu_diagnstc_data_sel_1hot[3]  =  lsu_diagnstc_data_sel[3] |  rst_tri_en;
 
 
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b10
   assign lsu_diagnstc_wr_data_e[63:0] = lmq0_bypass_data[63:0];
-`else
+  end else begin : g_b10_n
 mux4ds  #(64) diag_st_mx (
   .in0  (lmq0_bypass_data[63:0]),
   .in1  (lmq1_bypass_data[63:0]),
@@ -1456,7 +1477,8 @@ mux4ds  #(64) diag_st_mx (
   .sel3 (lsu_diagnstc_data_sel_1hot[3]),
   .dout (lsu_diagnstc_wr_data_e[63:0])
 );
-`endif
+  end
+endgenerate
    
 // Remove flops
 /*dff  #(64) dgndt_d1 (
@@ -1900,9 +1922,10 @@ assign lsu_va_match_b31_b3_m =  (lsu_ldst_va_m[31:3 ] == va_wtchpt_addr[31:3 ]);
       
    wire [63:0] ld_byp_data_m;
    
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b11
   assign ld_byp_data_m[63:0] = lmq0_bypass_data[63:0];
-`else
+  end else begin : g_b11_n
 mux4ds  #(64) ld_byp_mx (
   .in0  (lmq0_bypass_data[63:0]),
   .in1  (lmq1_bypass_data[63:0]),
@@ -1914,7 +1937,8 @@ mux4ds  #(64) ld_byp_mx (
   .sel3 (ld_thrd_byp_sel_m[3]),
   .dout (ld_byp_data_m[63:0])
 );
-`endif
+  end
+endgenerate
   
 assign dcache_alt_data_w0_m[63:0] =  
        l2fill_vld_m ? l2fill_data_m[63:0] : 

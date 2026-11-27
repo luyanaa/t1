@@ -707,9 +707,10 @@ module sparc_ifu_dcl(/*AUTOARG*/
 		                    .q   (t0_fcc_d[7:0]),
 		                    .rst (dtu_reset),
 		                    .clk (clk),  .se  (se), .si(), .so());
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_fcc_smt1
    assign fcc_d[7:0] = t0_fcc_d[7:0];
-`else
+  end else begin : g_fcc_smtn
    
    mux2ds #(8)  t1_fcc_mux(.dout (t1_fcc_nxt[7:0]),
 			                     .in0  (t1_fcc_d[7:0]),
@@ -758,7 +759,8 @@ module sparc_ifu_dcl(/*AUTOARG*/
 		                    .sel2 (thr_dec_d[2]),
 		                    .sel3 (thr_dec_d[3]));
 
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
 endmodule // sparc_ifu_dcl
 

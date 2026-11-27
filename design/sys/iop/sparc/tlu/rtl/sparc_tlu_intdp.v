@@ -248,14 +248,15 @@ module sparc_tlu_intdp (/*AUTOARG*/
 			 .in1   (int_id_i1[5:0]),
 			 .sel   (inc_ind_rstthr_i1[0]));
 
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b0
      dff_s #(6) rid0_reg(.din (next_t0_rstid_i1[5:0]),
 		   .q   (t0_rstid_i2[5:0]),
 		   .clk (clk),
 		   .se  (se), .si(), .so());
    assign  int_tlu_rstid_m[5:0] = t0_rstid_i2[5:0];
    
-`else
+  end else begin : g_b0_n
  
    dp_mux2es #(6) rid_mux1(.dout  (next_t1_rstid_i1[5:0]),
 			 .in0   (t1_rstid_i2[5:0]),
@@ -313,7 +314,8 @@ module sparc_tlu_intdp (/*AUTOARG*/
 			   .sel2_l (~inc_ind_thr_m[2]),
 			   .sel3_l (~inc_ind_thr_m[3]));
 
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
 
    sparc_tlu_dec64 iv_dec(.in  (int_id_i1[5:0]),
 			  .out (inrr_dec_i1[63:0]));
@@ -329,7 +331,8 @@ module sparc_tlu_intdp (/*AUTOARG*/
 			  .in0   (t0_inrr_arw_i1[63:0]),
 			  .in1   (new_t0_inrr_i1[63:0]),
 			  .sel   (inc_ind_ld_int_i1[0]));
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b1
    // interrupt receive register (INRR)
    // change to dff -- software will reset before IE turns on
    dffr_s #(64) t0_inrr (.din (next_t0_inrr_i1[63:0]),
@@ -342,7 +345,7 @@ module sparc_tlu_intdp (/*AUTOARG*/
 		     .se  (se), .si(), .so());
    assign   inrr_rd_data_i2[63:0] = t0_inrr_i2[63:0];
 
-`else
+  end else begin : g_b1_n
    
    dp_mux2es #(64) inrr_en_mux1(.dout  (next_t1_inrr_i1[63:0]),
 			  .in0   (t1_inrr_arw_i1[63:0]),
@@ -416,13 +419,15 @@ module sparc_tlu_intdp (/*AUTOARG*/
 			 .sel2_l (~inc_ind_asi_thr[2]),
 			 .sel3_l (~inc_ind_asi_thr[3]));
 
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
 		     
    // signal interrupt pending
    sparc_tlu_zcmp64  zcmp0(.in  (t0_inrr_i2[63:0]),
 			   .zero (int_pending_i2_l[0]));
 
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b2
    assign t0_asi_wr_data = ~(~lsu_tlu_st_rs3_data_g & 
 			      {64{inc_ind_asi_wr_inrr[0]}});
    assign t0_inrr_aw_i2 = t0_inrr_i2 & t0_asi_wr_data;
@@ -434,7 +439,7 @@ module sparc_tlu_intdp (/*AUTOARG*/
 		   .se  (se), .si(), .so());
    assign invr_rd_data_i3[5:0] = t0_invr_i3[5:0];
    
-`else
+  end else begin : g_b2_n
    
    sparc_tlu_zcmp64  zcmp1(.in  (t1_inrr_i2[63:0]),
 			   .zero (int_pending_i2_l[1]));
@@ -513,7 +518,8 @@ module sparc_tlu_intdp (/*AUTOARG*/
 			    .sel1_l (~inc_ind_asi_thr[1]),
 			    .sel2_l (~inc_ind_asi_thr[2]),
 			    .sel3_l (~inc_ind_asi_thr[3]));
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
    //
    // modified for bug 2109
@@ -568,14 +574,15 @@ module sparc_tlu_intdp (/*AUTOARG*/
 				.in0  (t0_indr[10:0]),
 				.in1  (indr_wr_pkt[10:0]),
 				.sel  (inc_ind_asi_wr_indr[0]));
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b3
    dff_s #(11) t0_indr_reg(.din (t0_indr_next[10:0]),
 		   .q   (t0_indr[10:0]),
 		   .clk (clk),
 		   .se  (se), .si(), .so());
    assign  indr_pcxpkt[10:0] = t0_indr[10:0];
    
-`else
+  end else begin : g_b3_n
    
    dp_mux2es  #(11)   t1_indr_mux(.dout (t1_indr_next[10:0]),
 				.in0  (t1_indr[10:0]),
@@ -628,7 +635,8 @@ module sparc_tlu_intdp (/*AUTOARG*/
 			     .sel1_l (~inc_ind_indr_grant[1]),
 			     .sel2_l (~inc_ind_indr_grant[2]),
 			     .sel3_l (~inc_ind_indr_grant[3]));
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
    
    assign  tlu_lsu_pcxpkt[25:0] = {inc_indr_req_valid,  // 25

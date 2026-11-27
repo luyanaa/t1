@@ -992,11 +992,12 @@ module sparc_ifu_swl(/*AUTOARG*/
 			     .si	(si),
 			     .reset	(dtu_reset));
 
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_thrfsm_smt1
    assign thr1_state = 5'b0;
    assign thr2_state = 5'b0;
    assign thr3_state = 5'b0;
-`else
+  end else begin : g_thrfsm_smtn
    sparc_ifu_thrfsm  thrfsm1(
 			     // Outputs
 `ifdef FPGA_SYN
@@ -1093,7 +1094,8 @@ module sparc_ifu_swl(/*AUTOARG*/
 			     .si	(si),
 			     .reset	(dtu_reset));
 
-`endif
+  end
+endgenerate
 
 //----------------------------------------------------------------------
 // Schedule Next Thread

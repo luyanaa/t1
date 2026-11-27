@@ -1230,14 +1230,16 @@ assign	tlu_update_pc_l_w[2] = 	~(inst_vld_g & thread2_rsel_g);
 assign	tlu_update_pc_l_w[3] = 	~(inst_vld_g & thread3_rsel_g);
 //
 // modified for timing 
-`ifdef FPGA_SYN_1THREAD
-   // SMT1: only T0 can take a trap; the T1-T3 trap-select flops are not
-   // initialized in the reduced build.
-   assign tlu_thrd_wsel_w2[`TLU_THRD_NUM-1:0] = 4'b0001;
-`else
-   assign tlu_thrd_wsel_w2[`TLU_THRD_NUM-1:0] =
-           {thread3_wtrp_w2, thread2_wtrp_w2, thread1_wtrp_w2, thread0_wtrp_w2};
-`endif
+// B2: one source of truth for the thread count.  With a single thread only
+// T0 can take a trap; for SMT>1 the per-thread trap-select flops are live.
+generate
+  if (`SPARC_SMT == 1) begin : g_thrd_wsel_smt1
+    assign tlu_thrd_wsel_w2[`TLU_THRD_NUM-1:0] = 4'b0001;
+  end else begin : g_thrd_wsel_smtn
+    assign tlu_thrd_wsel_w2[`TLU_THRD_NUM-1:0] =
+            {thread3_wtrp_w2, thread2_wtrp_w2, thread1_wtrp_w2, thread0_wtrp_w2};
+  end
+endgenerate
 
 //wire	pending_thrd_event_taken_w2;
 assign	pending_thrd_event_taken = 

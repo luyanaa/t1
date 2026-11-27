@@ -2896,17 +2896,18 @@ module sparc_ifu_fcl(/*AUTOARG*/
                                 .b (tmne_32));
    
 
-`ifdef FPGA_SYN_1THREAD
-   // SMT1: the only live thread is T0; the legacy flop has no reset and
-   // would otherwise power up X (the full-chip bench forces it today).
-   assign thr_f_flop = 4'b0001;
-`else
-   // POR = 4'b0001 (thread 0 selected), per the RTL comment above.
-   dff_s #(4, 4'b0001) thrf_reg(.din   (thr_bf),     // thr_f may be 4'b0000 but it has 
+// B2: one source of truth.  With a single thread only T0 is live; otherwise
+// the round-robin thread-select flop drives it (POR 4'b0001 = thread 0).
+generate
+  if (`SPARC_SMT == 1) begin : g_thrf_smt1
+    assign thr_f_flop = 4'b0001;
+  end else begin : g_thrf_smtn
+    dff_s #(4, 4'b0001) thrf_reg(.din   (thr_bf),     // thr_f may be 4'b0000 but it has
 		                 .clk   (clk),        // to reset to 4'b0001
 		                 .q     (thr_f_flop),
 		                 .se    (se),  .si(), .so());
-`endif
+  end
+endgenerate
 
    bw_u1_buf_10x UZsize_tfcrit0(.a (thr_f_flop[0]), .z(thr_f_crit[0]));
    bw_u1_buf_10x UZsize_tfcrit1(.a (thr_f_flop[1]), .z(thr_f_crit[1]));

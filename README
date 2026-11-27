@@ -577,6 +577,14 @@ The original documentation is under `doc/`:
     PCX grant -> FPU compute -> CPX return -> core takes it) is measured in
     `tb_diag` with `+FPU_SMOKE`; see `port/FPU.md` for the acceptance and the
     remaining gap.
+  - The Sun `FPGA_SYN_1THREAD` statement guards inside modules are now
+    `generate if (`SPARC_SMT == 1)` blocks driven by `SPARC_SMT`, so a single
+    source tree covers both widths (`tlu_tcl`, `tlu_tdp`, `tlu_hyperv`,
+    `sparc_tlu_intdp`, `sparc_ifu_fcl`, `sparc_ifu_swl`, `sparc_ifu_errdp`,
+    `sparc_ifu_dcl`, `sparc_ifu_fdp`, `lsu`, `lsu_qdp1`).  Only the three
+    file-level module selections (`bw_r_frf`, `bw_r_irf`,
+    `bw_r_irf_register`, which choose a different module body rather than a
+    statement) still use the preprocessor.
   - Remaining: FP loads need the D-cache/L2 fill path (the stripped bench has
     no D-cache tag/way model, and the full-chip bench's L2 bank control state
     comes up X - both recorded in `port/FPU.md`), retry full-core PnR on the

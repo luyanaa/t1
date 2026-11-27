@@ -524,9 +524,10 @@ module sparc_ifu_errdp(/*AUTOARG*/
 		       .q   (t0_err_addr),
 		       .clk (clk), .se(se), .si(), .so());
 
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_erraddr_smt1
 	assign err_addr_asidata = t0_err_addr;
-`else
+  end else begin : g_erraddr_smtn
    // thread 1
    dp_mux4ds #(44) t1_eadr_mx0(.dout  (t1_eadr_mx0_out),
 			     .in0   ({24'b0, irfsynd_w[7:0], 4'b0, irfaddr_w[7:0]}),
@@ -652,7 +653,8 @@ module sparc_ifu_errdp(/*AUTOARG*/
 			     .sel1_l (erc_erd_asi_thr_l[1]),
 			     .sel2_l (erc_erd_asi_thr_l[2]),
 			     .sel3_l (erc_erd_asi_thr_l[3]));
-`endif
+  end
+endgenerate
    
    // Instruction Mask
    dp_mux2es #(39) imask_en_mux(.dout (imask_next),

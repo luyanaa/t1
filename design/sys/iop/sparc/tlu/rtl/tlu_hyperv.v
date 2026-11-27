@@ -1087,8 +1087,9 @@ dff_s    #(2) dffe_gl0 (
 
 assign tlu_gl_lvl0[`TSA_GLOBAL_WIDTH-1:0] = gl_lvl0[`TSA_GLOBAL_WIDTH-1:0];
 
-`ifdef FPGA_SYN_1THREAD
-`else
+generate
+  if (`SPARC_SMT == 1) begin : g_b0
+  end else begin : g_b0_n
    
 // THREAD1
 
@@ -1402,7 +1403,8 @@ dff_s    #(2) dffe_gl3 (
 
 assign tlu_gl_lvl3[`TSA_GLOBAL_WIDTH-1:0] = gl_lvl3[`TSA_GLOBAL_WIDTH-1:0];
 
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
 ////////////////////////////////////////////////////////////////////////
 // Global swap 
@@ -1461,7 +1463,8 @@ dff_s #(2) dff_tlu_exu_agp_tid (
 
 assign agp_thrid_w2[0] = ~tlu_agp_tid_w2[0] & ~tlu_agp_tid_w2[1] & gl0_en; 
 
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b1
    assign agp_thrid_w2[1] = 1'b0; 
    assign agp_thrid_w2[2] = 1'b0; 
    assign agp_thrid_w2[3] = 1'b0; 
@@ -1479,7 +1482,7 @@ assign agp_thrid_w2[0] = ~tlu_agp_tid_w2[0] & ~tlu_agp_tid_w2[1] & gl0_en;
 
    assign agp_new_w2[1:0] = gl_lvl0_new[1:0];
    
-`else
+  end else begin : g_b1_n
    
 assign agp_thrid_w2[1] =  tlu_agp_tid_w2[0] & ~tlu_agp_tid_w2[1] & gl1_en; 
 assign agp_thrid_w2[2] = ~tlu_agp_tid_w2[0] &  tlu_agp_tid_w2[1] & gl2_en; 
@@ -1510,7 +1513,8 @@ assign agp_new_w2[1:0] =
                ((agp_thrid_w2[2])? gl_lvl2_new[1:0] :
                    ((agp_thrid_w2[3])? gl_lvl3_new[1:0] : 
                         gl_lvl0_new[1:0])); 
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
 
 //
 // added for timing fixes

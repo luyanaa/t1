@@ -1093,7 +1093,8 @@ wire [3:0] 		lsu_tlu_stb_full_w2_t;  // To accommodate 1T design
    wire [2:0] 		lsu_pid_state2_t;
    wire [2:0] 		lsu_pid_state3_t;
    
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b0
    assign 		lsu_tlu_stb_full_w2[3:0] = {3'b000, lsu_tlu_stb_full_w2_t[0]};
    assign 		lsu_asi_reg0[7:0] = lsu_asi_reg0_t[7:0];
    assign 		lsu_asi_reg1[7:0] = 7'b0000000;
@@ -1112,7 +1113,7 @@ wire [3:0] 		lsu_tlu_stb_full_w2_t;  // To accommodate 1T design
    assign 		lsu_stbcnt2[3:0] = 4'b0000;
    assign 		lsu_stbcnt3[3:0] = 4'b0000;
    
-`else
+  end else begin : g_b0_n
    assign 		lsu_tlu_stb_full_w2[3:0] = lsu_tlu_stb_full_w2_t[3:0];
    assign 		lsu_asi_reg0[7:0] = lsu_asi_reg0_t[7:0];
    assign 		lsu_asi_reg1[7:0] = lsu_asi_reg1_t[7:0];
@@ -1127,7 +1128,8 @@ wire [3:0] 		lsu_tlu_stb_full_w2_t;  // To accommodate 1T design
    assign 		lsu_pid_state2[2:0] = lsu_pid_state2_t[2:0];
    assign 		lsu_pid_state3[2:0] = lsu_pid_state3_t[2:0];
 
-`endif
+  end
+endgenerate
         
    
 /* lsu_qctl1 AUTO_TEMPLATE (
@@ -1150,7 +1152,8 @@ wire [3:0] 		lsu_tlu_stb_full_w2_t;  // To accommodate 1T design
 */
 
 
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b1
    
 lsu_qctl1 qctl1  (
                   .so                   (short_scan1_1),                  
@@ -1296,7 +1299,7 @@ lsu_qctl1 qctl1  (
                   .lsu_no_spc_pref      (lsu_no_spc_pref[3:0]),
                   .tlu_early_flush_pipe2_w(tlu_early_flush_pipe2_w),
                   .lsu_ttype_vld_m2     (lsu_ttype_vld_m2_bf1));  // Templated
-`else // !`ifdef FPGA_SYN_1THREAD
+  end else begin : g_b1_n
 
    lsu_qctl1 qctl1  (
                   .so                   (short_scan1_1),                  
@@ -1442,7 +1445,8 @@ lsu_qctl1 qctl1  (
                   .lsu_no_spc_pref      (lsu_no_spc_pref[3:0]),
                   .tlu_early_flush_pipe2_w(tlu_early_flush_pipe2_w),
                   .lsu_ttype_vld_m2     (lsu_ttype_vld_m2_bf1));  // Templated
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
 
 /* lsu_qctl2 AUTO_TEMPLATE (
@@ -1468,7 +1472,8 @@ lsu_qctl1 qctl1  (
                 .lsu_ld_miss_g          (lsu_ld_miss_wb));        
 */
 
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b2
    
 lsu_qctl2 qctl2  (
                   .so                   (scan1_1),
@@ -1669,7 +1674,7 @@ lsu_qctl2 qctl2  (
                   .lsu_dfq_rdata_b103   (dfq_rdata[103]),        // Templated
                   .sehold               (sehold));
 
-`else // !`ifdef FPGA_SYN_1THREAD
+  end else begin : g_b2_n
 
    lsu_qctl2 qctl2  (
                   .so                   (scan1_1),
@@ -1869,7 +1874,8 @@ lsu_qctl2 qctl2  (
                   .lsu_dfq_rdata_rq_type(dfq_rdata[`CPX_WIDTH-2:`CPX_WIDTH-5]), // Templated
                   .lsu_dfq_rdata_b103   (dfq_rdata[103]),        // Templated
                   .sehold               (sehold));
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
 /*   cmp_sram_redhdr AUTO_TEMPLATE( 
                             .fuse_ary_wren(fuse_dcd_wren),
@@ -2265,7 +2271,8 @@ lsu_excpctl excpctl (
                .lsu_dcfill_addr_e       (lsu_dcache_fill_addr_e_err[10:4]));
 */    
 
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b3
    
 lsu_dctldp dctldp (
                    .so                  (short_scan1_2),
@@ -2395,7 +2402,7 @@ lsu_dctldp dctldp (
                    .lsu_diagnstc_va_sel (lsu_diagnstc_va_sel[3:0]),
                    .rst_tri_en          (mux_drive_disable));     // Templated
 
-`else // !`ifdef FPGA_SYN_1THREAD
+  end else begin : g_b3_n
 
    
    lsu_dctldp dctldp (
@@ -2525,7 +2532,8 @@ lsu_dctldp dctldp (
                    .stb_ldst_byte_msk   (stb_ldst_byte_msk[7:0]),
                    .lsu_diagnstc_va_sel (lsu_diagnstc_va_sel[3:0]),
                    .rst_tri_en          (mux_drive_disable));     // Templated
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
 /*
 lsu_dctl AUTO_TEMPLATE (
@@ -2559,7 +2567,8 @@ lsu_dctl AUTO_TEMPLATE (
 
 */
 
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b4
    
 lsu_dctl dctl (
                .so                      (short_scan1_3),
@@ -3016,7 +3025,7 @@ lsu_dctl dctl (
                .mbist_dcache_write      (mbist_dcache_write),
                .mbist_dcache_read       (mbist_dcache_read));
 
-`else // !`ifdef FPGA_SYN_1THREAD
+  end else begin : g_b4_n
       
 lsu_dctl dctl (
                .so                      (short_scan1_3),
@@ -3472,7 +3481,8 @@ lsu_dctl dctl (
                .lsu_st_dcfill_size_e    (lsu_st_dcfill_size_e[1:0]),
                .mbist_dcache_write      (mbist_dcache_write),
                .mbist_dcache_read       (mbist_dcache_read));
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
 /*lsu_dcdp AUTO_TEMPLATE (
            .dcache_alt_mx_sel_e  (dcache_alt_mx_sel_e_bf),
@@ -3643,7 +3653,8 @@ lsu_stb_rwctl  AUTO_TEMPLATE  (
                          .stb_rdata_ramc_b8t0 (stb_rdata_ramc[8:0]),     
                          .tlb_pgnum_b39_g(tlb_pgnum_buf[39]));        
 */ 
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b5
    
 lsu_stb_rwctl stb_rwctl (
                          .so            (short_scan1_4),
@@ -3754,7 +3765,7 @@ lsu_stb_rwctl stb_rwctl (
                          .lsu_stbcnt1   (lsu_stbcnt1[3:0]),
                          .lsu_stbcnt2   (lsu_stbcnt2[3:0]),
                          .lsu_stbcnt3   (lsu_stbcnt3[3:0]));
-`else
+  end else begin : g_b5_n
    
 lsu_stb_rwctl stb_rwctl (
                          .so            (short_scan1_4),
@@ -3865,7 +3876,8 @@ lsu_stb_rwctl stb_rwctl (
                          .lsu_stbcnt1   (lsu_stbcnt1[3:0]),
                          .lsu_stbcnt2   (lsu_stbcnt2[3:0]),
                          .lsu_stbcnt3   (lsu_stbcnt3[3:0]));
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
 /*
 lsu_stb_rwdp AUTO_TEMPLATE (
@@ -4139,7 +4151,8 @@ lsu_stb_ctldp stb_ctldp0  (
                            .lsu_st_rq_type_m(lsu_st_rq_type_m[2:1]),
                            .lsu_st_rmo_m(lsu_st_rmo_m));
 
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b6
    
    
 lsu_stb_ctl stb_ctl1  (
@@ -4411,7 +4424,7 @@ lsu_stb_ctldp stb_ctldp3  (
                            .lsu_stb_va_m(2'b00),
                            .lsu_st_rq_type_m(2'b00),
                            .lsu_st_rmo_m(1'b0));
-`else // !`ifdef FPGA_SYN_1THREAD
+  end else begin : g_b6_n
 
    
 lsu_stb_ctl stb_ctl1  (
@@ -4683,7 +4696,8 @@ lsu_stb_ctldp stb_ctldp3  (
                            .lsu_stb_va_m(lsu_stb_va_m[7:6]),
                            .lsu_st_rq_type_m(lsu_st_rq_type_m[2:1]),
                            .lsu_st_rmo_m(lsu_st_rmo_m));
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
 /*
 lsu_qdp1 AUTO_TEMPLATE (
@@ -4706,7 +4720,8 @@ lsu_qdp1 AUTO_TEMPLATE (
         .lmq_byp_misc_sel      (lsu_lmq_byp_misc_sel[3:0]),
         .lsu_dcache_rdata_w    (dcache_rdata_wb_buf[63:0]));
 */                   
-`ifdef FPGA_SYN_1THREAD
+generate
+  if (`SPARC_SMT == 1) begin : g_b7
                                                     
 lsu_qdp1  qdp1  (
                  .so                    (short_scan0_9),
@@ -4840,7 +4855,7 @@ lsu_qdp1  qdp1  (
                  .lsu_l2fill_data       (lsu_l2fill_data[63:0]),
                  .l2fill_vld_m          (l2fill_vld_m),
                  .ld_thrd_byp_sel_m     (ld_thrd_byp_mxsel_m[3:0])); // Templated
-`else
+  end else begin : g_b7_n
                                                      
 lsu_qdp1  qdp1  (
                  .so                    (short_scan0_9),
@@ -4974,7 +4989,8 @@ lsu_qdp1  qdp1  (
                  .lsu_l2fill_data       (lsu_l2fill_data[63:0]),
                  .l2fill_vld_m          (l2fill_vld_m),
                  .ld_thrd_byp_sel_m     (ld_thrd_byp_mxsel_m[3:0])); // Templated
-`endif // !`ifdef FPGA_SYN_1THREAD
+  end
+endgenerate
    
 /* 
 lsu_qdp2 AUTO_TEMPLATE (
