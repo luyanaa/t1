@@ -7,9 +7,8 @@ FPU ?= 1
 ifneq ($(filter-out 1 2 4,$(SMT)),)
 $(error SMT must be 1, 2, or 4)
 endif
-ifeq ($(SMT),2)
-$(error SMT=2 is reserved and not implemented yet; use SMT=1 or SMT=4)
-endif
+# SMT=2 uses the multi-thread datapath (the Sun RTL has no separate
+# two-thread logic); threads 2 and 3 simply stay idle.
 ifneq ($(filter-out 0 1,$(FPU)),)
 $(error FPU must be 0 or 1)
 endif

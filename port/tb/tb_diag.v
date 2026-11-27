@@ -257,6 +257,13 @@ module tb_diag;
 
 `ifdef FPU_SMOKE
     // FFU/LSU bring-up probe: is the core even asking for an fpop?
+    // qctl1 lives in a generate block, so the path differs by thread count.
+`ifdef SPARC_1THREAD
+    `define LSU_QCTL dut.sparc0.lsu.g_qctl_smt1.qctl1
+`else
+    `define LSU_QCTL dut.sparc0.lsu.g_qctl_smtn.qctl1
+`endif
+
     reg ffu_trace = 1'b0;
     initial if ($test$plusargs("ffutrace")) ffu_trace = 1'b1;
     always @(posedge gclk) if (ffu_trace) begin
@@ -318,27 +325,27 @@ module tb_diag;
                  dut.sparc0.ffu.ctl.ctl_dp_noflip_fpu,
                  dut.sparc0.ffu.ctl.ctl_dp_flip_fpu);
         $display("QMON cyc=%0d e0=%b e1=%b upd4=%b gr4=%b sel4=%b",
-                 cycle_count, dut.sparc0.lsu.qctl1.fpiobridge_qmon.entry0_full,
-                 dut.sparc0.lsu.qctl1.fpiobridge_qmon.entry1_full,
-                 dut.sparc0.lsu.qctl1.spc_pcx_req_update_w2[4],
+                 cycle_count, `LSU_QCTL.fpiobridge_qmon.entry0_full,
+                 `LSU_QCTL.fpiobridge_qmon.entry1_full,
+                 `LSU_QCTL.spc_pcx_req_update_w2[4],
                  dut.sparc0.pcx_spc_grant_px[4],
-                 dut.sparc0.lsu.qctl1.sel_qentry0[4]);
+                 `LSU_QCTL.sel_qentry0[4]);
         $display("LSU2 cyc=%0d ld0=%b ld1=%b st0=%b st1=%b im=%b strm=%b rq=%h",
-                 cycle_count, dut.sparc0.lsu.qctl1.ld0_pcx_rq_vld,
-                 dut.sparc0.lsu.qctl1.ld1_pcx_rq_vld,
-                 dut.sparc0.lsu.qctl1.st0_pcx_rq_vld,
-                 dut.sparc0.lsu.qctl1.st1_pcx_rq_vld,
-                 dut.sparc0.lsu.qctl1.imiss_pcx_rq_vld,
-                 dut.sparc0.lsu.qctl1.strm_pcx_rq_vld,
+                 cycle_count, `LSU_QCTL.ld0_pcx_rq_vld,
+                 `LSU_QCTL.ld1_pcx_rq_vld,
+                 `LSU_QCTL.st0_pcx_rq_vld,
+                 `LSU_QCTL.st1_pcx_rq_vld,
+                 `LSU_QCTL.imiss_pcx_rq_vld,
+                 `LSU_QCTL.strm_pcx_rq_vld,
                  dut.sparc0.lsu.spc_pcx_req_pq);
         $display("LSU cyc=%0d fvld=%b pktv=%b pktu=%b qwr=%b sel=%b rqv=%b sel2=%b",
                  cycle_count, dut.sparc0.ffu_lsu_fpop_rq_vld,
-                 dut.sparc0.lsu.qctl1.fpop_pkt_vld,
-                 dut.sparc0.lsu.qctl1.fpop_pkt_vld_unmasked,
-                 dut.sparc0.lsu.qctl1.fpop_q_wr,
-                 dut.sparc0.lsu.qctl1.fpop_pcx_rq_sel,
-                 dut.sparc0.lsu.qctl1.fpop_pcx_rq_vld,
-                 dut.sparc0.lsu.qctl1.fpop_pcx_rq_sel_d1);
+                 `LSU_QCTL.fpop_pkt_vld,
+                 `LSU_QCTL.fpop_pkt_vld_unmasked,
+                 `LSU_QCTL.fpop_q_wr,
+                 `LSU_QCTL.fpop_pcx_rq_sel,
+                 `LSU_QCTL.fpop_pcx_rq_vld,
+                 `LSU_QCTL.fpop_pcx_rq_sel_d1);
     end
 `endif
 

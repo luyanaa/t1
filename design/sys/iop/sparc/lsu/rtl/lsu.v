@@ -1153,7 +1153,7 @@ endgenerate
 
 
 generate
-  if (`SPARC_SMT == 1) begin : g_b1
+  if (`SPARC_SMT == 1) begin : g_qctl_smt1
    
 lsu_qctl1 qctl1  (
                   .so                   (short_scan1_1),                  
@@ -1299,7 +1299,7 @@ lsu_qctl1 qctl1  (
                   .lsu_no_spc_pref      (lsu_no_spc_pref[3:0]),
                   .tlu_early_flush_pipe2_w(tlu_early_flush_pipe2_w),
                   .lsu_ttype_vld_m2     (lsu_ttype_vld_m2_bf1));  // Templated
-  end else begin : g_b1_n
+  end else begin : g_qctl_smtn
 
    lsu_qctl1 qctl1  (
                   .so                   (short_scan1_1),                  

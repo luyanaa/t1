@@ -585,6 +585,10 @@ The original documentation is under `doc/`:
     file-level module selections (`bw_r_frf`, `bw_r_irf`,
     `bw_r_irf_register`, which choose a different module body rather than a
     statement) still use the preprocessor.
+  - `SMT=2` is now a supported build: `-DSPARC_2THREAD` selects `SPARC_SMT 2`
+    and the two-thread testbench paths, while the datapath itself is the
+    multi-thread one (the Sun RTL has no separate two-thread logic), so
+    threads 2 and 3 stay idle.  `make -C port regress SMT=2 FPU=1` passes.
   - Remaining: FP loads need the D-cache/L2 fill path (the stripped bench has
     no D-cache tag/way model, and the full-chip bench's L2 bank control state
     comes up X - both recorded in `port/FPU.md`), retry full-core PnR on the
